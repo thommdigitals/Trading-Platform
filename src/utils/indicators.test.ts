@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { calculateBollingerBands, calculateEMA, calculateRSI, calculateSMA, lastValue } from './indicators';
+import {
+  calculateATR,
+  calculateBollingerBands,
+  calculateDonchianChannel,
+  calculateEMA,
+  calculateMACD,
+  calculateRSI,
+  calculateSMA,
+  calculateStochastic,
+  calculateVWAP,
+  calculateWMA,
+  lastValue,
+  resolveIndicatorSpec,
+} from './indicators';
 
 const candles = (...closes: number[]) => closes.map((close) => ({ close }));
+const fullCandles = (...closes: number[]) =>
+  closes.map((close, idx) => ({
+    open: close - 0.5,
+    high: close + 1,
+    low: close - 1,
+    close,
+    tickCount: (idx + 1) * 10,
+  }));
 
 describe('indicators', () => {
   it('SMA is aligned with input and null until warm', () => {
@@ -55,6 +76,36 @@ describe('indicators', () => {
   it('lastValue skips trailing nulls', () => {
     expect(lastValue([1, 2, null])).toBe(2);
     expect(lastValue([null, null])).toBeNull();
+  });
+
+  it('computes WMA, Donchian Channel, VWAP, ATR, MACD, Stochastic and resolves custom indicator specs', () => {
+    const bars = fullCandles(
+      ...Array.from({ length: 40 }, (_, i) => 100 + Math.sin(i / 3) * 5 + i * 0.2),
+    );
+    const wma = calculateWMA(bars, 5);
+    expect(lastValue(wma)).toBeGreaterThan(95);
+
+    const dc = calculateDonchianChannel(bars, 10);
+    expect(lastValue(dc.upper)).toBeGreaterThan(lastValue(dc.lower)!);
+
+    const vwap = calculateVWAP(bars, 10);
+    expect(lastValue(vwap)).toBeGreaterThan(95);
+
+    const atr = calculateATR(bars, 14);
+    expect(lastValue(atr)).toBeGreaterThan(0);
+
+    const macd = calculateMACD(bars, 12, 26, 9);
+    expect(lastValue(macd.macd)).not.toBeNull();
+    expect(lastValue(macd.signal)).not.toBeNull();
+
+    const stoch = calculateStochastic(bars, 14, 3);
+    expect(lastValue(stoch.k)).toBeGreaterThanOrEqual(0);
+    expect(lastValue(stoch.d)).toBeGreaterThanOrEqual(0);
+
+    const spec = resolveIndicatorSpec('EMA:144');
+    expect(spec?.id).toBe('EMA:144');
+    expect(spec?.label).toBe('EMA 144');
+    expect(spec?.placement).toBe('overlay');
   });
 });
 

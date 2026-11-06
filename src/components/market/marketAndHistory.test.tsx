@@ -27,13 +27,23 @@ describe('Market Data & History Components Suite (TASK-021, TASK-022, TASK-025, 
     useTradingStore.getState().setQuotes(quotes);
   });
 
-  it('renders SymbolBrowser, filters by search and category, and triggers Trade callback (TASK-021)', () => {
+  it('renders SymbolBrowser, filters by search and category, toggles Favorite Symbol & Favorite Indicator (TASK-021)', () => {
     const onSelectTrade = vi.fn();
     render(<SymbolBrowser onSelectTrade={onSelectTrade} />);
 
     const searchInput = screen.getByLabelText('Search instruments');
     fireEvent.change(searchInput, { target: { value: 'EUR' } });
     expect(screen.getByText('EUR/USD')).toBeInTheDocument();
+
+    const favBtn = screen.getByRole('button', { name: /Favorit EURUSD/i });
+    fireEvent.click(favBtn);
+    expect(useConfigStore.getState().watchlist.includes('EURUSD')).toBe(false);
+    fireEvent.click(favBtn);
+    expect(useConfigStore.getState().watchlist.includes('EURUSD')).toBe(true);
+
+    useConfigStore.getState().addCustomIndicator('EMA:144', true);
+    expect(useConfigStore.getState().activeIndicators.includes('EMA:144')).toBe(true);
+    expect(useConfigStore.getState().favoriteIndicators.includes('EMA:144')).toBe(true);
 
     const tradeButtons = screen.getAllByRole('button', { name: /Trade/i });
     fireEvent.click(tradeButtons[0]!);

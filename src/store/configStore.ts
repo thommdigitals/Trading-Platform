@@ -15,6 +15,11 @@ import {
   type SecureStorage,
 } from '@/services/storage';
 import { AIProviderConfigSchema, type AIProviderConfig } from '@/types/ai';
+import {
+  DEFAULT_ACTIVE_INDICATORS,
+  DEFAULT_FAVORITE_INDICATORS,
+  resolveIndicatorSpec,
+} from '@/utils/indicators';
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 export type FontSizeMode = 'sm' | 'md' | 'lg';
@@ -39,6 +44,8 @@ const StoredPrefsSchema = z.object({
   theme: z.enum(['dark', 'light', 'system']),
   fontSize: z.enum(['sm', 'md', 'lg']).catch('md'),
   riskSettings: RiskSettingsSchema,
+  favoriteIndicators: z.array(z.string().min(1)).catch([...DEFAULT_FAVORITE_INDICATORS]),
+  activeIndicators: z.array(z.string().min(1)).catch([...DEFAULT_ACTIVE_INDICATORS]),
 });
 
 const StoredTokenSchema = z.object({
@@ -60,6 +67,8 @@ export interface ConfigState {
   aiProviders: AIProviderConfig[];
   activeProviderId: string | null;
   watchlist: string[];
+  favoriteIndicators: string[];
+  activeIndicators: string[];
   defaultSymbol: string;
   defaultInterval: CandleInterval;
   theme: ThemeMode;
@@ -84,7 +93,11 @@ export interface ConfigState {
   setActiveProvider: (id: string) => void;
   addToWatchlist: (symbol: string) => void;
   removeFromWatchlist: (symbol: string) => void;
+  toggleFavoriteSymbol: (symbol: string) => void;
   reorderWatchlist: (fromIndex: number, toIndex: number) => void;
+  toggleFavoriteIndicator: (id: string) => void;
+  toggleActiveIndicator: (id: string) => void;
+  addCustomIndicator: (id: string, addToFavorites?: boolean) => void;
   setDefaultSymbol: (symbol: string) => void;
   setDefaultInterval: (interval: CandleInterval) => void;
   setTheme: (theme: ThemeMode) => void;
@@ -108,11 +121,20 @@ function persistProviders(state: Pick<ConfigState, 'aiProviders' | 'activeProvid
 function persistPrefs(
   state: Pick<
     ConfigState,
-    'watchlist' | 'defaultSymbol' | 'defaultInterval' | 'theme' | 'fontSize' | 'riskSettings'
+    | 'watchlist'
+    | 'favoriteIndicators'
+    | 'activeIndicators'
+    | 'defaultSymbol'
+    | 'defaultInterval'
+    | 'theme'
+    | 'fontSize'
+    | 'riskSettings'
   >,
 ): void {
   void activePersistentStorage.setSecure(STORAGE_KEYS.prefs, {
     watchlist: state.watchlist,
+    favoriteIndicators: state.favoriteIndicators,
+    activeIndicators: state.activeIndicators,
     defaultSymbol: state.defaultSymbol,
     defaultInterval: state.defaultInterval,
     theme: state.theme,
@@ -129,6 +151,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   aiProviders: initialProviders,
   activeProviderId: initialProviders[0]?.id ?? null,
   watchlist: [...DEFAULT_WATCHLIST],
+  favoriteIndicators: [...DEFAULT_FAVORITE_INDICATORS],
+  activeIndicators: [...DEFAULT_ACTIVE_INDICATORS],
   defaultSymbol: DEFAULT_SYMBOL,
   defaultInterval: DEFAULT_CANDLE_INTERVAL,
   theme: 'dark',
@@ -165,6 +189,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       ...(storedPrefs
         ? {
             watchlist: storedPrefs.watchlist,
+            favoriteIndicators:
+              storedPrefs.favoriteIndicators.length > 0
+                ? storedPrefs.favoriteIndicators
+                : [...DEFAULT_FAVORITE_INDICATORS],
+            activeIndicators: storedPrefs.activeIndicators,
             defaultSymbol: storedPrefs.defaultSymbol,
             defaultInterval: storedPrefs.defaultInterval,
             theme: storedPrefs.theme,
@@ -251,6 +280,17 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     persistPrefs({ ...get(), watchlist });
   },
 
+  toggleFavoriteSymbol(symbol) {
+    const normalized = symbol.trim().toUpperCase();
+    if (!normalized) return;
+    const current = get().watchlist;
+    const watchlist = current.includes(normalized)
+      ? current.filter((item) => item !== normalized)
+      : [...current, normalized];
+    set({ watchlist });
+    persistPrefs({ ...get(), watchlist });
+  },
+
   reorderWatchlist(fromIndex, toIndex) {
     const current = [...get().watchlist];
     if (
@@ -267,6 +307,42 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     current.splice(toIndex, 0, moved);
     set({ watchlist: current });
     persistPrefs({ ...get(), watchlist: current });
+  },
+
+  toggleFavoriteIndicator(id) {
+    const spec = resolveIndicatorSpec(id);
+    if (!spec) return;
+    const current = get().favoriteIndicators;
+    const favoriteIndicators = current.includes(spec.id)
+      ? current.filter((item) => item !== spec.id)
+      : [...current, spec.id];
+    set({ favoriteIndicators });
+    persistPrefs({ ...get(), favoriteIndicators });
+  },
+
+  toggleActiveIndicator(id) {
+    const spec = resolveIndicatorSpec(id);
+    if (!spec) return;
+    const current = get().activeIndicators;
+    const activeIndicators = current.includes(spec.id)
+      ? current.filter((item) => item !== spec.id)
+      : [...current, spec.id];
+    set({ activeIndicators });
+    persistPrefs({ ...get(), activeIndicators });
+  },
+
+  addCustomIndicator(id, addToFavorites = true) {
+    const spec = resolveIndicatorSpec(id);
+    if (!spec) return;
+    const curActive = get().activeIndicators;
+    const curFav = get().favoriteIndicators;
+    const activeIndicators = curActive.includes(spec.id)
+      ? curActive
+      : [...curActive, spec.id];
+    const favoriteIndicators =
+      addToFavorites && !curFav.includes(spec.id) ? [...curFav, spec.id] : curFav;
+    set({ activeIndicators, favoriteIndicators });
+    persistPrefs({ ...get(), activeIndicators, favoriteIndicators });
   },
 
   setDefaultSymbol(symbol) {

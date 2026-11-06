@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Check, Plus, Search, TrendingUp } from 'lucide-react';
+import { Search, Star, TrendingUp } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,14 +25,14 @@ export interface SymbolBrowserProps {
   readonly onSelectTrade?: (symbol: string) => void;
 }
 
-const CATEGORIES = ['ALL', 'FOREX', 'CRYPTO', 'COMMODITY', 'INDEX', 'STOCK'] as const;
+const CATEGORIES = ['ALL', 'FAVORIT', 'FOREX', 'CRYPTO', 'COMMODITY', 'INDEX', 'STOCK'] as const;
 
 export function SymbolBrowser({ onSelectTrade }: SymbolBrowserProps): React.ReactElement {
   const { symbols, loading } = useSymbols();
   const quotes = useTradingStore((s) => s.quotes);
   const setSelectedSymbol = useConfigStore((s) => s.setDefaultSymbol);
   const watchlist = useConfigStore((s) => s.watchlist);
-  const addToWatchlist = useConfigStore((s) => s.addToWatchlist);
+  const toggleFavoriteSymbol = useConfigStore((s) => s.toggleFavoriteSymbol);
 
   const [query, setQuery] = React.useState('');
   const [category, setCategory] = React.useState<string>('ALL');
@@ -40,8 +40,12 @@ export function SymbolBrowser({ onSelectTrade }: SymbolBrowserProps): React.Reac
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     return symbols.filter((s) => {
-      const catMatch = category === 'ALL' || (s.type ?? '').toUpperCase() === category;
-      if (!catMatch) return false;
+      if (category === 'FAVORIT') {
+        if (!watchlist.includes(s.symbol)) return false;
+      } else {
+        const catMatch = category === 'ALL' || (s.type ?? '').toUpperCase() === category;
+        if (!catMatch) return false;
+      }
       if (!q) return true;
       return (
         s.symbol.toLowerCase().includes(q) ||
@@ -49,7 +53,7 @@ export function SymbolBrowser({ onSelectTrade }: SymbolBrowserProps): React.Reac
         (s.type ?? '').toLowerCase().includes(q)
       );
     });
-  }, [symbols, query, category]);
+  }, [symbols, query, category, watchlist]);
 
   return (
     <Card>
@@ -157,22 +161,19 @@ export function SymbolBrowser({ onSelectTrade }: SymbolBrowserProps): React.Reac
                         <div className="inline-flex items-center gap-1.5">
                           <Button
                             size="sm"
-                            variant={inWatchlist ? 'ghost' : 'outline'}
-                            disabled={inWatchlist}
-                            onClick={() => addToWatchlist(sym.symbol)}
+                            variant="outline"
+                            onClick={() => toggleFavoriteSymbol(sym.symbol)}
+                            aria-label={`Favorit ${sym.symbol}`}
                             className="h-7 px-2 text-[11px]"
                           >
-                            {inWatchlist ? (
-                              <>
-                                <Check className="mr-1 h-3 w-3 text-emerald-400" />
-                                Saved
-                              </>
-                            ) : (
-                              <>
-                                <Plus className="mr-1 h-3 w-3" />
-                                Watch
-                              </>
-                            )}
+                            <Star
+                              className={`mr-1 h-3 w-3 ${
+                                inWatchlist
+                                  ? 'fill-amber-400 text-amber-400'
+                                  : 'text-slate-400'
+                              }`}
+                            />
+                            {inWatchlist ? 'Favorit' : '+ Favorit'}
                           </Button>
                           <Button
                             size="sm"

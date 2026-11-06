@@ -14,11 +14,21 @@ import {
   LineStyle,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { Activity, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
+import {
+  Activity,
+  Maximize2,
+  Minimize2,
+  Plus,
+  RefreshCw,
+  SlidersHorizontal,
+  Star,
+} from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { useCandles } from '@/hooks/useCandles';
 import { useSymbols } from '@/hooks/useSymbols';
@@ -27,11 +37,22 @@ import { useTradingStore } from '@/store/tradingStore';
 import type { Candle, CandleInterval } from '@/types/api';
 import { formatPrice } from '@/utils/formatters';
 import {
+  BUILTIN_INDICATORS,
+  calculateATR,
   calculateBollingerBands,
+  calculateDonchianChannel,
   calculateEMA,
+  calculateMACD,
   calculateRSI,
   calculateSMA,
+  calculateStochastic,
+  calculateVWAP,
+  calculateWMA,
+  type IndicatorKind,
+  type IndicatorSpec,
   lastValue,
+  resolveIndicatorSpec,
+  type Series,
 } from '@/utils/indicators';
 
 import { IntervalSelector } from './IntervalSelector';
@@ -39,6 +60,24 @@ import { IntervalSelector } from './IntervalSelector';
 export interface CandleChartProps {
   readonly height?: number;
   readonly compact?: boolean;
+}
+
+function toLineData(
+  series: Series,
+  candles: readonly Candle[],
+): Array<{ time: UTCTimestamp; value: number }> {
+  const out: Array<{ time: UTCTimestamp; value: number }> = [];
+  for (let i = 0; i < series.length; i += 1) {
+    const val = series[i];
+    const bar = candles[i];
+    if (val !== null && val !== undefined && bar) {
+      out.push({
+        time: Math.floor(bar.timestamp / 1000) as UTCTimestamp,
+        value: val,
+      });
+    }
+  }
+  return out;
 }
 
 export function CandleChart({
@@ -49,6 +88,14 @@ export function CandleChart({
   const setSelectedSymbol = useConfigStore((s) => s.setDefaultSymbol);
   const selectedInterval = useConfigStore((s) => s.defaultInterval);
   const setSelectedInterval = useConfigStore((s) => s.setDefaultInterval);
+  const watchlist = useConfigStore((s) => s.watchlist);
+  const toggleFavoriteSymbol = useConfigStore((s) => s.toggleFavoriteSymbol);
+  const favoriteIndicators = useConfigStore((s) => s.favoriteIndicators);
+  const activeIndicators = useConfigStore((s) => s.activeIndicators);
+  const toggleFavoriteIndicator = useConfigStore((s) => s.toggleFavoriteIndicator);
+  const toggleActiveIndicator = useConfigStore((s) => s.toggleActiveIndicator);
+  const addCustomIndicator = useConfigStore((s) => s.addCustomIndicator);
+
   const positions = useTradingStore((s) => s.positions);
   const quotes = useTradingStore((s) => s.quotes);
   const theme = useConfigStore((s) => s.theme);
@@ -62,23 +109,19 @@ export function CandleChart({
   );
   const precision = symbolInfo?.pricePrecision ?? 5;
   const quote = quotes[selectedSymbol];
+  const isSymbolFavorite = watchlist.includes(selectedSymbol);
 
-  const [showSma20, setShowSma20] = React.useState(true);
-  const [showSma50, setShowSma50] = React.useState(false);
-  const [showEma20, setShowEma20] = React.useState(false);
-  const [showBB, setShowBB] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [hoveredCandle, setHoveredCandle] = React.useState<Candle | null>(null);
+  const [indicatorModalOpen, setIndicatorModalOpen] = React.useState(false);
+  const [customKind, setCustomKind] = React.useState<IndicatorKind>('EMA');
+  const [customPeriod, setCustomPeriod] = React.useState<string>('34');
 
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const chartRef = React.useRef<IChartApi | null>(null);
   const candleSeriesRef = React.useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = React.useRef<ISeriesApi<'Histogram'> | null>(null);
-  const sma20SeriesRef = React.useRef<ISeriesApi<'Line'> | null>(null);
-  const sma50SeriesRef = React.useRef<ISeriesApi<'Line'> | null>(null);
-  const ema20SeriesRef = React.useRef<ISeriesApi<'Line'> | null>(null);
-  const bbUpperSeriesRef = React.useRef<ISeriesApi<'Line'> | null>(null);
-  const bbLowerSeriesRef = React.useRef<ISeriesApi<'Line'> | null>(null);
+  const overlaySeriesRef = React.useRef<Map<string, ISeriesApi<'Line'>[]>>(new Map());
   const priceLinesRef = React.useRef<IPriceLine[]>([]);
 
   const sortedCandles = React.useMemo(() => {
@@ -92,9 +135,82 @@ export function CandleChart({
       .map(([, c]) => c);
   }, [candles]);
 
-  const latestRsi = React.useMemo(() => {
-    return lastValue(calculateRSI(sortedCandles, 14));
-  }, [sortedCandles]);
+  // Combine favorite indicators + any active custom indicators for the toolbar
+  const toolbarSpecs = React.useMemo(() => {
+    const ids = Array.from(new Set([...favoriteIndicators, ...activeIndicators]));
+    return ids
+      .map((id) => resolveIndicatorSpec(id))
+      .filter((spec): spec is IndicatorSpec => spec !== null);
+  }, [favoriteIndicators, activeIndicators]);
+
+  // All catalog indicators (built-ins + any user-created custom indicator)
+  const catalogSpecs = React.useMemo(() => {
+    const map = new Map<string, IndicatorSpec>();
+    for (const b of BUILTIN_INDICATORS) map.set(b.id, b);
+    for (const id of [...favoriteIndicators, ...activeIndicators]) {
+      const spec = resolveIndicatorSpec(id);
+      if (spec && !map.has(spec.id)) map.set(spec.id, spec);
+    }
+    return Array.from(map.values());
+  }, [favoriteIndicators, activeIndicators]);
+
+  // Compute live oscillator/metric values for active metric indicators
+  const activeMetrics = React.useMemo(() => {
+    if (sortedCandles.length === 0) return [];
+    const out: Array<{ id: string; label: string; valueText: string; variant: 'danger' | 'success' | 'outline' }> = [];
+
+    for (const id of activeIndicators) {
+      const spec = resolveIndicatorSpec(id);
+      if (!spec || spec.placement !== 'metric') continue;
+
+      if (spec.kind === 'RSI') {
+        const val = lastValue(calculateRSI(sortedCandles, spec.period));
+        if (val !== null) {
+          out.push({
+            id: spec.id,
+            label: spec.label,
+            valueText: val.toFixed(1),
+            variant: val >= 70 ? 'danger' : val <= 30 ? 'success' : 'outline',
+          });
+        }
+      } else if (spec.kind === 'MACD') {
+        const macdRes = calculateMACD(sortedCandles, spec.period, 26, 9);
+        const m = lastValue(macdRes.macd);
+        const h = lastValue(macdRes.histogram);
+        if (m !== null) {
+          out.push({
+            id: spec.id,
+            label: spec.label,
+            valueText: `${m.toFixed(precision)} (H: ${(h ?? 0) >= 0 ? '+' : ''}${(h ?? 0).toFixed(precision)})`,
+            variant: (h ?? 0) > 0 ? 'success' : (h ?? 0) < 0 ? 'danger' : 'outline',
+          });
+        }
+      } else if (spec.kind === 'ATR') {
+        const val = lastValue(calculateATR(sortedCandles, spec.period));
+        if (val !== null) {
+          out.push({
+            id: spec.id,
+            label: spec.label,
+            valueText: formatPrice(val, precision),
+            variant: 'outline',
+          });
+        }
+      } else if (spec.kind === 'STOCH') {
+        const st = calculateStochastic(sortedCandles, spec.period, 3);
+        const k = lastValue(st.k);
+        const d = lastValue(st.d);
+        if (k !== null) {
+          out.push({
+            id: spec.id,
+            label: spec.label,
+            valueText: `%K ${k.toFixed(1)} / %D ${(d ?? k).toFixed(1)}`,
+            variant: k >= 80 ? 'danger' : k <= 20 ? 'success' : 'outline',
+          });
+        }
+      }
+    }
+    return out;
+  }, [sortedCandles, activeIndicators, precision]);
 
   // Initialize chart instance
   React.useEffect(() => {
@@ -104,7 +220,7 @@ export function CandleChart({
     const isLight = theme === 'light';
     const chart = createChart(container, {
       width: container.clientWidth || 640,
-      height: isFullscreen ? Math.max(window.innerHeight - 160, 480) : height,
+      height: isFullscreen ? Math.max(window.innerHeight - 180, 480) : height,
       layout: {
         background: {
           type: ColorType.Solid,
@@ -151,47 +267,11 @@ export function CandleChart({
       scaleMargins: { top: 0.82, bottom: 0 },
     });
 
-    const sma20Series = chart.addSeries(LineSeries, {
-      color: '#38bdf8',
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    const sma50Series = chart.addSeries(LineSeries, {
-      color: '#f59e0b',
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    const ema20Series = chart.addSeries(LineSeries, {
-      color: '#a855f7',
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    const bbUpperSeries = chart.addSeries(LineSeries, {
-      color: '#64748b',
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    const bbLowerSeries = chart.addSeries(LineSeries, {
-      color: '#64748b',
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-
+    const overlayMap = overlaySeriesRef.current;
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
-    sma20SeriesRef.current = sma20Series;
-    sma50SeriesRef.current = sma50Series;
-    ema20SeriesRef.current = ema20Series;
-    bbUpperSeriesRef.current = bbUpperSeries;
-    bbLowerSeriesRef.current = bbLowerSeries;
+    overlayMap.clear();
 
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -205,23 +285,20 @@ export function CandleChart({
 
     return () => {
       resizeObserver.disconnect();
+      overlayMap.clear();
       priceLinesRef.current = [];
       chart.remove();
       chartRef.current = null;
     };
   }, [theme, height, isFullscreen, precision]);
 
-  // Populate candle & indicator series data
+  // Populate candle & dynamic overlay indicator series data
   React.useEffect(() => {
+    const chart = chartRef.current;
     const candleSeries = candleSeriesRef.current;
     const volumeSeries = volumeSeriesRef.current;
-    const sma20Series = sma20SeriesRef.current;
-    const sma50Series = sma50SeriesRef.current;
-    const ema20Series = ema20SeriesRef.current;
-    const bbUpperSeries = bbUpperSeriesRef.current;
-    const bbLowerSeries = bbLowerSeriesRef.current;
 
-    if (!candleSeries || !volumeSeries || sortedCandles.length === 0) return;
+    if (!chart || !candleSeries || !volumeSeries || sortedCandles.length === 0) return;
 
     const candleData = sortedCandles.map((c) => ({
       time: Math.floor(c.timestamp / 1000) as UTCTimestamp,
@@ -240,101 +317,75 @@ export function CandleChart({
     candleSeries.setData(candleData);
     volumeSeries.setData(volumeData);
 
-    if (sma20Series) {
-      if (showSma20) {
-        const vals = calculateSMA(sortedCandles, 20);
-        sma20Series.setData(
-          vals
-            .map((v, idx) =>
-              v !== null && sortedCandles[idx]
-                ? {
-                    time: Math.floor(sortedCandles[idx].timestamp / 1000) as UTCTimestamp,
-                    value: v,
-                  }
-                : null,
-            )
-            .filter((item): item is { time: UTCTimestamp; value: number } => item !== null),
-        );
-      } else {
-        sma20Series.setData([]);
+    const activeOverlaySpecs = activeIndicators
+      .map((id) => resolveIndicatorSpec(id))
+      .filter((s): s is IndicatorSpec => s !== null && s.placement === 'overlay');
+    const activeOverlayIds = new Set(activeOverlaySpecs.map((s) => s.id));
+
+    // Remove disabled overlay series
+    for (const [id, seriesList] of overlaySeriesRef.current.entries()) {
+      if (!activeOverlayIds.has(id)) {
+        for (const s of seriesList) {
+          try {
+            chart.removeSeries(s);
+          } catch {
+            // ignore
+          }
+        }
+        overlaySeriesRef.current.delete(id);
       }
     }
 
-    if (sma50Series) {
-      if (showSma50) {
-        const vals = calculateSMA(sortedCandles, 50);
-        sma50Series.setData(
-          vals
-            .map((v, idx) =>
-              v !== null && sortedCandles[idx]
-                ? {
-                    time: Math.floor(sortedCandles[idx].timestamp / 1000) as UTCTimestamp,
-                    value: v,
-                  }
-                : null,
-            )
-            .filter((item): item is { time: UTCTimestamp; value: number } => item !== null),
-        );
-      } else {
-        sma50Series.setData([]);
-      }
-    }
+    // Add or update active overlay series
+    for (const spec of activeOverlaySpecs) {
+      let seriesList = overlaySeriesRef.current.get(spec.id);
+      const neededLines = spec.kind === 'BB' || spec.kind === 'DC' ? 2 : 1;
 
-    if (ema20Series) {
-      if (showEma20) {
-        const vals = calculateEMA(sortedCandles, 20);
-        ema20Series.setData(
-          vals
-            .map((v, idx) =>
-              v !== null && sortedCandles[idx]
-                ? {
-                    time: Math.floor(sortedCandles[idx].timestamp / 1000) as UTCTimestamp,
-                    value: v,
-                  }
-                : null,
-            )
-            .filter((item): item is { time: UTCTimestamp; value: number } => item !== null),
-        );
-      } else {
-        ema20Series.setData([]);
+      if (!seriesList || seriesList.length !== neededLines) {
+        if (seriesList) {
+          for (const s of seriesList) {
+            try {
+              chart.removeSeries(s);
+            } catch {
+              // ignore
+            }
+          }
+        }
+        seriesList = [];
+        for (let i = 0; i < neededLines; i += 1) {
+          const line = chart.addSeries(LineSeries, {
+            color: spec.color,
+            lineWidth: neededLines === 2 ? 1 : 2,
+            lineStyle: neededLines === 2 ? LineStyle.Dashed : LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+          });
+          seriesList.push(line);
+        }
+        overlaySeriesRef.current.set(spec.id, seriesList);
       }
-    }
 
-    if (bbUpperSeries && bbLowerSeries) {
-      if (showBB) {
-        const bb = calculateBollingerBands(sortedCandles, 20, 2);
-        bbUpperSeries.setData(
-          bb.upper
-            .map((v, idx) =>
-              v !== null && sortedCandles[idx]
-                ? {
-                    time: Math.floor(sortedCandles[idx].timestamp / 1000) as UTCTimestamp,
-                    value: v,
-                  }
-                : null,
-            )
-            .filter((item): item is { time: UTCTimestamp; value: number } => item !== null),
-        );
-        bbLowerSeries.setData(
-          bb.lower
-            .map((v, idx) =>
-              v !== null && sortedCandles[idx]
-                ? {
-                    time: Math.floor(sortedCandles[idx].timestamp / 1000) as UTCTimestamp,
-                    value: v,
-                  }
-                : null,
-            )
-            .filter((item): item is { time: UTCTimestamp; value: number } => item !== null),
-        );
-      } else {
-        bbUpperSeries.setData([]);
-        bbLowerSeries.setData([]);
+      if (spec.kind === 'SMA') {
+        seriesList[0]?.setData(toLineData(calculateSMA(sortedCandles, spec.period), sortedCandles));
+      } else if (spec.kind === 'EMA') {
+        seriesList[0]?.setData(toLineData(calculateEMA(sortedCandles, spec.period), sortedCandles));
+      } else if (spec.kind === 'WMA') {
+        seriesList[0]?.setData(toLineData(calculateWMA(sortedCandles, spec.period), sortedCandles));
+      } else if (spec.kind === 'VWAP') {
+        seriesList[0]?.setData(toLineData(calculateVWAP(sortedCandles, spec.period), sortedCandles));
+      } else if (spec.kind === 'BB') {
+        const bb = calculateBollingerBands(sortedCandles, spec.period, 2);
+        seriesList[0]?.setData(toLineData(bb.upper, sortedCandles));
+        seriesList[1]?.setData(toLineData(bb.lower, sortedCandles));
+      } else if (spec.kind === 'DC') {
+        const dc = calculateDonchianChannel(sortedCandles, spec.period);
+        seriesList[0]?.setData(toLineData(dc.upper, sortedCandles));
+        seriesList[1]?.setData(toLineData(dc.lower, sortedCandles));
       }
     }
 
     setHoveredCandle(sortedCandles[sortedCandles.length - 1] ?? null);
-  }, [sortedCandles, showSma20, showSma50, showEma20, showBB]);
+  }, [sortedCandles, activeIndicators]);
 
   // Draw active position lines (Entry, TP, SL)
   React.useEffect(() => {
@@ -388,6 +439,13 @@ export function CandleChart({
     }
   }, [positions, selectedSymbol]);
 
+  const handleAddCustomIndicator = (e: React.FormEvent) => {
+    e.preventDefault();
+    const p = Number.parseInt(customPeriod, 10);
+    const validPeriod = Number.isFinite(p) ? Math.min(500, Math.max(2, p)) : 14;
+    addCustomIndicator(`${customKind}:${validPeriod}`, true);
+  };
+
   const activeBar = hoveredCandle ?? sortedCandles[sortedCandles.length - 1] ?? null;
 
   return (
@@ -398,9 +456,9 @@ export function CandleChart({
           : 'flex flex-col'
       }
     >
-      <CardHeader className="flex flex-col gap-2.5 border-b border-slate-800/80 pb-3">
+      <CardHeader className="flex flex-col gap-2 border-b border-slate-800/80 pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Select
               aria-label="Chart symbol"
               value={selectedSymbol}
@@ -418,6 +476,30 @@ export function CandleChart({
               )}
             </Select>
 
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={() => toggleFavoriteSymbol(selectedSymbol)}
+              aria-label={
+                isSymbolFavorite
+                  ? `Hapus ${selectedSymbol} dari Favorit Symbol`
+                  : `Tambah ${selectedSymbol} ke Favorit Symbol`
+              }
+              title={
+                isSymbolFavorite
+                  ? 'Hapus dari Favorit Symbol (Watchlist)'
+                  : 'Tambah ke Favorit Symbol (Watchlist)'
+              }
+              className="h-8 w-8"
+            >
+              <Star
+                className={`h-3.5 w-3.5 ${
+                  isSymbolFavorite ? 'fill-amber-400 text-amber-400' : 'text-slate-400'
+                }`}
+              />
+            </Button>
+
             <IntervalSelector
               value={selectedInterval}
               onChange={(interval: CandleInterval) => setSelectedInterval(interval)}
@@ -433,69 +515,21 @@ export function CandleChart({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            {!compact && (
-              <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/70 p-1">
-                <button
-                  type="button"
-                  onClick={() => setShowSma20((v) => !v)}
-                  className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    showSma20
-                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  SMA 20
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSma50((v) => !v)}
-                  className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    showSma50
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  SMA 50
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowEma20((v) => !v)}
-                  className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    showEma20
-                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  EMA 20
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowBB((v) => !v)}
-                  className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    showBB
-                      ? 'bg-slate-700 text-slate-100'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  BB(20,2)
-                </button>
-              </div>
-            )}
-
-            {latestRsi !== null && (
-              <Badge
-                variant={latestRsi >= 70 ? 'danger' : latestRsi <= 30 ? 'success' : 'outline'}
-                className="font-mono text-[10px]"
-              >
-                <Activity className="mr-1 h-3 w-3" />
-                RSI(14): {latestRsi.toFixed(1)}
-              </Badge>
-            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setIndicatorModalOpen(true)}
+              className="h-7 px-2.5 text-[11px]"
+            >
+              <SlidersHorizontal className="mr-1 h-3 w-3 text-blue-400" />
+              + Indikator ({activeIndicators.length})
+            </Button>
 
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => void refresh()}
+              onClick={() => void refresh(true)}
               aria-label="Refresh candles"
               className="h-7 w-7"
             >
@@ -518,26 +552,111 @@ export function CandleChart({
           </div>
         </div>
 
-        {activeBar && (
-          <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-slate-400">
-            <span>
-              O:{' '}
-              <strong className="text-slate-200">{formatPrice(activeBar.open, precision)}</strong>
+        {/* Baris Cepat: Favorit Symbol */}
+        {watchlist.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 text-[11px]">
+            <span className="mr-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+              <Star className="h-3 w-3 fill-amber-400" /> Favorit Symbol:
             </span>
-            <span>
-              H:{' '}
-              <strong className="text-emerald-400">{formatPrice(activeBar.high, precision)}</strong>
-            </span>
-            <span>
-              L:{' '}
-              <strong className="text-rose-400">{formatPrice(activeBar.low, precision)}</strong>
-            </span>
-            <span>
-              C:{' '}
-              <strong className="text-slate-100">{formatPrice(activeBar.close, precision)}</strong>
-            </span>
-            <span>
-              Ticks: <strong className="text-slate-300">{activeBar.tickCount}</strong>
+            {watchlist.map((sym) => {
+              const active = sym === selectedSymbol;
+              return (
+                <button
+                  key={sym}
+                  type="button"
+                  onClick={() => setSelectedSymbol(sym)}
+                  className={`rounded-md px-2 py-0.5 text-[11px] font-mono font-medium transition-colors ${
+                    active
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-900/90 text-slate-300 border border-slate-800 hover:border-slate-700 hover:text-white'
+                  }`}
+                >
+                  {sym}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Baris Cepat: Favorit Indikator & Indikator Aktif */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-sky-400">
+            <Activity className="h-3 w-3" /> Favorit Indikator:
+          </span>
+          {toolbarSpecs.map((spec) => {
+            const isActive = activeIndicators.includes(spec.id);
+            const isFav = favoriteIndicators.includes(spec.id);
+            return (
+              <div
+                key={spec.id}
+                className={`inline-flex items-center rounded-md border text-[10px] font-medium transition-colors ${
+                  isActive
+                    ? 'border-blue-500/50 bg-blue-500/20 text-blue-200'
+                    : 'border-slate-800 bg-slate-900/70 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleActiveIndicator(spec.id)}
+                  className="px-2 py-0.5"
+                  title={`${isActive ? 'Nonaktifkan' : 'Aktifkan'} ${spec.label}`}
+                >
+                  <span
+                    className="mr-1 inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: spec.color }}
+                  />
+                  {spec.label}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleFavoriteIndicator(spec.id)}
+                  aria-label={`Favorit ${spec.label}`}
+                  title={isFav ? 'Hapus dari Favorit Indikator' : 'Simpan ke Favorit Indikator'}
+                  className="border-l border-slate-800/80 px-1 py-0.5 hover:text-amber-400"
+                >
+                  <Star
+                    className={`h-2.5 w-2.5 ${
+                      isFav ? 'fill-amber-400 text-amber-400' : 'text-slate-500'
+                    }`}
+                  />
+                </button>
+              </div>
+            );
+          })}
+
+          {activeMetrics.map((m) => (
+            <Badge key={m.id} variant={m.variant} className="font-mono text-[10px]">
+              <Activity className="mr-1 h-3 w-3" />
+              {m.label}: {m.valueText}
+            </Badge>
+          ))}
+        </div>
+
+        {activeBar && !compact && (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>
+                O:{' '}
+                <strong className="text-slate-200">{formatPrice(activeBar.open, precision)}</strong>
+              </span>
+              <span>
+                H:{' '}
+                <strong className="text-emerald-400">{formatPrice(activeBar.high, precision)}</strong>
+              </span>
+              <span>
+                L:{' '}
+                <strong className="text-rose-400">{formatPrice(activeBar.low, precision)}</strong>
+              </span>
+              <span>
+                C:{' '}
+                <strong className="text-slate-100">{formatPrice(activeBar.close, precision)}</strong>
+              </span>
+              <span>
+                Ticks: <strong className="text-slate-300">{activeBar.tickCount}</strong>
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-500">
+              Data Live: Fortuno Markets (Match-Trader Feed) • Visual: TradingView Lightweight Charts
             </span>
           </div>
         )}
@@ -547,7 +666,7 @@ export function CandleChart({
         <div
           ref={containerRef}
           className="w-full"
-          style={{ height: isFullscreen ? 'calc(100vh - 170px)' : `${height}px` }}
+          style={{ height: isFullscreen ? 'calc(100vh - 200px)' : `${height}px` }}
         />
         {sortedCandles.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 text-xs text-slate-400">
@@ -555,6 +674,128 @@ export function CandleChart({
           </div>
         )}
       </CardContent>
+
+      <Dialog
+        open={indicatorModalOpen}
+        onOpenChange={setIndicatorModalOpen}
+        title="Kelola Indikator Teknikal & Favorit Indikator"
+        description="Seluruh indikator dihitung real-time dari data candle live broker Fortuno Markets. Klik ikon bintang (★) untuk menyematkan indikator ke bar Favorit di atas chart."
+      >
+        <div className="space-y-4 text-xs">
+          <form
+            onSubmit={handleAddCustomIndicator}
+            className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2.5"
+          >
+            <div className="font-semibold text-slate-200">
+              + Tambah Indikator Kustom (Custom Period)
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">Tipe Indikator</label>
+                <Select
+                  aria-label="Tipe Indikator Kustom"
+                  value={customKind}
+                  onChange={(e) => setCustomKind(e.target.value as IndicatorKind)}
+                  className="h-8 text-xs"
+                >
+                  <option value="SMA">SMA (Simple Moving Average)</option>
+                  <option value="EMA">EMA (Exponential Moving Average)</option>
+                  <option value="WMA">WMA (Weighted Moving Average)</option>
+                  <option value="BB">BB (Bollinger Bands)</option>
+                  <option value="DC">Donchian Channel</option>
+                  <option value="VWAP">VWAP (Volume Weighted)</option>
+                  <option value="RSI">RSI (Relative Strength Index)</option>
+                  <option value="MACD">MACD</option>
+                  <option value="ATR">ATR (Average True Range)</option>
+                  <option value="STOCH">Stochastic Oscillator</option>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-400">
+                  Periode (2 – 500)
+                </label>
+                <Input
+                  type="number"
+                  min={2}
+                  max={500}
+                  value={customPeriod}
+                  onChange={(e) => setCustomPeriod(e.target.value)}
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" size="sm" className="h-8 w-full text-xs">
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Tambah &amp; Favoritkan
+                </Button>
+              </div>
+            </div>
+          </form>
+
+          <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+            {catalogSpecs.map((spec) => {
+              const isActive = activeIndicators.includes(spec.id);
+              const isFav = favoriteIndicators.includes(spec.id);
+              return (
+                <div
+                  key={spec.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-800/90 bg-slate-900/60 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => toggleFavoriteIndicator(spec.id)}
+                      aria-label={`Toggle favorit ${spec.label}`}
+                      className="rounded p-1 hover:bg-slate-800"
+                      title={isFav ? 'Hapus dari Favorit' : 'Tambahkan ke Favorit'}
+                    >
+                      <Star
+                        className={`h-4 w-4 ${
+                          isFav ? 'fill-amber-400 text-amber-400' : 'text-slate-500'
+                        }`}
+                      />
+                    </button>
+                    <div>
+                      <div className="flex items-center gap-2 font-semibold text-slate-100">
+                        <span
+                          className="inline-block h-2 w-2 rounded-full"
+                          style={{ backgroundColor: spec.color }}
+                        />
+                        <span>{spec.label}</span>
+                        <Badge variant="outline" className="text-[9px]">
+                          {spec.placement === 'overlay' ? 'Chart Overlay' : 'Live Oscillator'}
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-slate-400">{spec.description}</p>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isActive ? 'default' : 'outline'}
+                    onClick={() => toggleActiveIndicator(spec.id)}
+                    className="h-7 px-3 text-xs"
+                  >
+                    {isActive ? 'Aktif di Chart' : 'Pasang'}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setIndicatorModalOpen(false)}
+            >
+              Selesai
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </Card>
   );
 }

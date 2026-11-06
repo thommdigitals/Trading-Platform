@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Minus, Plus, AlertTriangle } from 'lucide-react';
+import { Minus, Plus, AlertTriangle, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,8 @@ export function OrderForm({
 }: OrderFormProps) {
   const defaultSymbol = useConfigStore((s) => s.defaultSymbol);
   const setDefaultSymbol = useConfigStore((s) => s.setDefaultSymbol);
+  const watchlist = useConfigStore((s) => s.watchlist);
+  const toggleFavoriteSymbol = useConfigStore((s) => s.toggleFavoriteSymbol);
   const riskSettings = useConfigStore((s) => s.riskSettings);
 
   const symbols = useTradingStore((s) => s.symbols);
@@ -152,21 +154,63 @@ export function OrderForm({
 
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
-          <div>
+          <div className="space-y-1.5">
             <label className="mb-1 block font-medium text-slate-600 dark:text-slate-300">
               Symbol
             </label>
-            <Select
-              aria-label="Pilih Symbol"
-              value={symbolInfo.symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-            >
-              {(symbols.length > 0 ? symbols : [symbolInfo]).map((s) => (
-                <option key={s.symbol} value={s.symbol}>
-                  {s.symbol} {s.alias ? `— ${s.alias}` : ''}
-                </option>
-              ))}
-            </Select>
+            <div className="flex items-center gap-1.5">
+              <Select
+                aria-label="Pilih Symbol"
+                value={symbolInfo.symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+                className="flex-1"
+              >
+                {(symbols.length > 0 ? symbols : [symbolInfo]).map((s) => (
+                  <option key={s.symbol} value={s.symbol}>
+                    {s.symbol} {s.alias ? `— ${s.alias}` : ''}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => toggleFavoriteSymbol(symbolInfo.symbol)}
+                aria-label={`Favorit ${symbolInfo.symbol}`}
+                title={
+                  watchlist.includes(symbolInfo.symbol)
+                    ? 'Hapus dari Favorit Symbol'
+                    : 'Tambah ke Favorit Symbol'
+                }
+              >
+                <Star
+                  className={`h-3.5 w-3.5 ${
+                    watchlist.includes(symbolInfo.symbol)
+                      ? 'fill-amber-400 text-amber-400'
+                      : 'text-slate-400'
+                  }`}
+                />
+              </Button>
+            </div>
+            {watchlist.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                <span className="text-[10px] font-semibold text-amber-400 mr-0.5">★</span>
+                {watchlist.map((fav) => (
+                  <button
+                    key={fav}
+                    type="button"
+                    onClick={() => setSymbol(fav)}
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-mono transition-colors ${
+                      fav === symbolInfo.symbol
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {fav}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2">

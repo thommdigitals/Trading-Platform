@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Info } from 'lucide-react';
+import { Info, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,8 @@ import {
 
 export function CreatePendingOrderForm({ onCreated }: { onCreated?: () => void }) {
   const defaultSymbol = useConfigStore((s) => s.defaultSymbol);
+  const watchlist = useConfigStore((s) => s.watchlist);
+  const toggleFavoriteSymbol = useConfigStore((s) => s.toggleFavoriteSymbol);
   const symbols = useTradingStore((s) => s.symbols);
   const quotes = useTradingStore((s) => s.quotes);
   const { createPendingOrder } = usePendingOrders(false);
@@ -127,13 +129,34 @@ export function CreatePendingOrderForm({ onCreated }: { onCreated?: () => void }
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div>
               <label className="mb-1 block font-medium">Symbol</label>
-              <Select value={symbolInfo.symbol} onChange={(e) => setSymbol(e.target.value)}>
-                {(symbols.length > 0 ? symbols : [symbolInfo]).map((s) => (
-                  <option key={s.symbol} value={s.symbol}>
-                    {s.symbol}
-                  </option>
-                ))}
-              </Select>
+              <div className="flex items-center gap-1">
+                <Select
+                  value={symbolInfo.symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                  className="flex-1"
+                >
+                  {(symbols.length > 0 ? symbols : [symbolInfo]).map((s) => (
+                    <option key={s.symbol} value={s.symbol}>
+                      {s.symbol}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => toggleFavoriteSymbol(symbolInfo.symbol)}
+                  aria-label={`Favorit ${symbolInfo.symbol}`}
+                >
+                  <Star
+                    className={`h-3.5 w-3.5 ${
+                      watchlist.includes(symbolInfo.symbol)
+                        ? 'fill-amber-400 text-amber-400'
+                        : 'text-slate-400'
+                    }`}
+                  />
+                </Button>
+              </div>
             </div>
             <div>
               <label className="mb-1 block font-medium">Order Type</label>
