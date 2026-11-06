@@ -43,51 +43,97 @@ export function AddProviderModal({
     setStatusMsg(null);
   };
 
-  const handleFetchModels = async (): Promise<void> => {
-    setFetchingModels(true);
-    setStatusMsg(null);
-    try {
-      const instance = createProvider({
-        id: 'temp',
-        displayName,
-        type,
-        baseURL,
-        apiKey,
-        defaultModel,
-        createdAt: Date.now(),
-      });
-      const list = await instance.listModels();
-      if (list.length > 0) {
-        setModels(list);
-        if (!list.includes(defaultModel)) {
-          setDefaultModel(list[0] ?? defaultModel);
-        }
-        setStatusMsg(`✓ Loaded ${list.length} models`);
+  const handleFetchModels = React.useCallback(
+    async (silent: boolean = false, signal?: AbortSignal): Promise<string[]> => {
+      const trimmedBase = baseURL.trim();
+      if (!/^https?:\/\/.+/i.test(trimmedBase)) {
+        if (!silent) setStatusMsg('✕ Masukkan Base URL yang valid terlebih dahulu (contoh: https://kiosapi.com/v1)');
+        return [];
       }
-    } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'Failed to fetch models');
-    } finally {
-      setFetchingModels(false);
-    }
-  };
+      setFetchingModels(true);
+      if (!silent) setStatusMsg(null);
+      try {
+        const instance = createProvider({
+          id: 'temp',
+          displayName: displayName || 'Custom Provider',
+          type,
+          baseURL: trimmedBase,
+          apiKey: apiKey.trim(),
+          defaultModel,
+          createdAt: Date.now(),
+        });
+        const list = await instance.listModels(signal);
+        if (signal?.aborted) return [];
+        if (list.length > 0) {
+          setModels(list);
+          setDefaultModel((prev) => (prev && list.includes(prev) ? prev : (list[0] ?? prev)));
+          setStatusMsg(`✓ Loaded ${list.length} models`);
+          return list;
+        }
+        if (!silent) {
+          setStatusMsg('✕ Tidak ada model yang ditemukan dari endpoint /models provider ini');
+        }
+        return [];
+      } catch (err) {
+        if (!signal?.aborted && !silent) {
+          setStatusMsg(`✕ ${err instanceof Error ? err.message : 'Failed to fetch models'}`);
+        }
+        return [];
+      } finally {
+        if (!signal?.aborted) {
+          setFetchingModels(false);
+        }
+      }
+    },
+    [baseURL, displayName, type, apiKey, defaultModel],
+  );
+
+  // Automatically fetch available models when Base URL and API Key are filled (like Hermes)
+  React.useEffect(() => {
+    if (!open) return;
+    const trimmedBase = baseURL.trim();
+    const trimmedKey = apiKey.trim();
+    const requiresKey = PROVIDER_PRESETS[type].requiresApiKey;
+
+    if (!/^https?:\/\/.+/i.test(trimmedBase)) return;
+    if (requiresKey && !trimmedKey) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void handleFetchModels(true, controller.signal);
+    }, 550);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [open, type, baseURL, apiKey, handleFetchModels]);
 
   const handleTestConnection = async (): Promise<void> => {
     setTesting(true);
     setStatusMsg(null);
     try {
+      let modelToUse = defaultModel.trim();
+      if (!modelToUse) {
+        const fetched = await handleFetchModels(true);
+        if (fetched.length > 0 && fetched[0]) {
+          modelToUse = fetched[0];
+          setDefaultModel(modelToUse);
+        }
+      }
       const instance = createProvider({
         id: 'temp',
-        displayName,
+        displayName: displayName || 'Custom Provider',
         type,
-        baseURL,
-        apiKey,
-        defaultModel,
+        baseURL: baseURL.trim(),
+        apiKey: apiKey.trim(),
+        defaultModel: modelToUse,
         createdAt: Date.now(),
       });
       const res = await instance.testConnection();
       setStatusMsg(
         res.success
-          ? `✓ Connection verified (${res.latency}ms)`
+          ? `✓ Connection verified (${res.latency}ms)${modelToUse ? ` • Model: ${modelToUse}` : ''}`
           : `✕ ${res.error ?? 'Connection failed'}`,
       );
     } finally {
@@ -95,15 +141,20 @@ export function AddProviderModal({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent): void => {
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!displayName.trim() || !baseURL.trim() || !defaultModel.trim()) return;
+    if (!displayName.trim() || !baseURL.trim()) return;
+    let resolvedModel = defaultModel.trim() || models[0] || PROVIDER_PRESETS[type].defaultModel;
+    if (!resolvedModel) {
+      const fetched = await handleFetchModels(true);
+      resolvedModel = fetched[0] || 'gpt-4o-mini';
+    }
     onAdd({
       displayName: displayName.trim(),
       type,
       baseURL: baseURL.trim(),
       apiKey: apiKey.trim(),
-      defaultModel: defaultModel.trim(),
+      defaultModel: resolvedModel,
     });
     onOpenChange(false);
   };
@@ -117,7 +168,7 @@ export function AddProviderModal({
       title="Add AI Provider"
       description="Configure an OpenAI, Anthropic, Gemini, Mistral, Groq, Ollama, or custom OpenAI-compatible endpoint."
     >
-      <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3 text-xs">
         <div>
           <label className="mb-1 block font-medium text-slate-300">Provider Type</label>
           <Select
@@ -213,8 +264,7 @@ export function AddProviderModal({
               aria-label="Default Model ID"
               value={defaultModel}
               onChange={(e) => setDefaultModel(e.target.value)}
-              placeholder="e.g. gpt-4o"
-              required
+              placeholder="Auto-detected or e.g. gpt-4o"
             />
           </div>
         </div>

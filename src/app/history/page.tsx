@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { showError } from '@/components/ui/toast';
 import { fortunoApi } from '@/services/fortunoApi';
+import { useConfigStore } from '@/store/configStore';
 import { useTradingStore } from '@/store/tradingStore';
 import type { ClosedPosition, LedgerEntry } from '@/types/api';
 
@@ -22,6 +23,8 @@ const PRESETS = [
 ] as const;
 
 export default function HistoryPage(): React.ReactElement {
+  const apiToken = useConfigStore((s) => s.apiToken);
+  const demoMode = useConfigStore((s) => s.demoMode);
   const account = useTradingStore((s) => s.account);
   const currency = account?.currency ?? 'USD';
 
@@ -39,6 +42,7 @@ export default function HistoryPage(): React.ReactElement {
   const [activeTab, setActiveTab] = React.useState<'closed' | 'ledger'>('closed');
 
   const fetchHistory = React.useCallback(async () => {
+    if (!apiToken && !demoMode) return;
     const fromMs = new Date(`${fromDate}T00:00:00.000Z`).getTime();
     const toMs = new Date(`${toDate}T23:59:59.999Z`).getTime();
     if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs > toMs) return;
@@ -56,7 +60,7 @@ export default function HistoryPage(): React.ReactElement {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, apiToken, demoMode]);
 
   React.useEffect(() => {
     void fetchHistory();

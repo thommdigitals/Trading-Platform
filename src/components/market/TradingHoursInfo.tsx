@@ -6,6 +6,7 @@ import { Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fortunoApi } from '@/services/fortunoApi';
+import { useConfigStore } from '@/store/configStore';
 import type { TradingHours } from '@/types/api';
 
 export interface TradingHoursInfoProps {
@@ -13,10 +14,13 @@ export interface TradingHoursInfoProps {
 }
 
 export function TradingHoursInfo({ symbol }: TradingHoursInfoProps): React.ReactElement {
+  const apiToken = useConfigStore((s) => s.apiToken);
+  const demoMode = useConfigStore((s) => s.demoMode);
   const [hours, setHours] = React.useState<TradingHours | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
 
   React.useEffect(() => {
+    if (!apiToken && !demoMode) return;
     let cancelled = false;
     setIsLoading(true);
     fortunoApi
@@ -33,7 +37,7 @@ export function TradingHoursInfo({ symbol }: TradingHoursInfoProps): React.React
     return () => {
       cancelled = true;
     };
-  }, [symbol]);
+  }, [symbol, apiToken, demoMode]);
 
   const isSessionOpen = hours?.isCurrentlyOpen ?? true;
 

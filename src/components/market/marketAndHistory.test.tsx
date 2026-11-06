@@ -79,3 +79,4 @@ describe('Market Data & History Components Suite (TASK-021, TASK-022, TASK-025, 
     expect(screen.getByText(/Initial deposit/i)).toBeInTheDocument();
   });
 });
+

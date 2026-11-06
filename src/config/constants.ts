@@ -3,12 +3,12 @@
  */
 
 export const POLLING = {
-  quotesMs: 1_000,
-  positionsMs: 3_000,
+  quotesMs: 2_000,
+  positionsMs: 4_000,
   accountMs: 5_000,
-  pendingOrdersMs: 5_000,
+  pendingOrdersMs: 6_000,
   /** Random +/- jitter to avoid synchronised request bursts. */
-  jitterMs: 200,
+  jitterMs: 250,
   /** Max backoff multiplier applied after consecutive polling failures. */
   maxBackoffFactor: 8,
 } as const;
@@ -30,15 +30,22 @@ export const RETRY = {
 
 /** Client side budgets mirroring the broker rate limits (requests per window). */
 export const RATE_LIMITS = {
-  trading: { limit: 60, windowMs: 60_000 },
-  candles: { limit: 20, windowMs: 60_000 },
+  trading: { limit: 55, windowMs: 60_000 },
+  candles: { limit: 18, windowMs: 60_000 },
+  quotes: { limit: 50, windowMs: 60_000 },
+  accountSummary: { limit: 18, windowMs: 60_000 },
+  positions: { limit: 18, windowMs: 60_000 },
+  pendingOrders: { limit: 18, windowMs: 60_000 },
+  metadata: { limit: 9, windowMs: 60_000 },
   /** Longest a request may wait for a free slot before failing fast. */
   maxQueueWaitMs: 15_000,
-  /** Warn the user when remaining endpoint budget gets this low. */
+  /** Warn the user when remaining global budget gets this low. */
   warnRemaining: 5,
 } as const;
 
 export const CACHE = {
+  accountTtlMs: 5 * 60_000,
+  platformDetailsTtlMs: 10 * 60_000,
   symbolsTtlMs: 5 * 60_000,
   tradingHoursTtlMs: 10 * 60_000,
   /** Cache lifetime of candle responses, by interval (ms). Keeps us below 20 req/min. */

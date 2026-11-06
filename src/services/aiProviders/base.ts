@@ -10,6 +10,35 @@ import type {
 } from '@/types/ai';
 
 /**
+ * Default browser fetch wrapper for AI providers.
+ * Routes external HTTP(S) provider requests through the same-origin `/api/ai-proxy` route
+ * when running in the browser so custom provider domains never hit browser CORS or CSP blocks.
+ */
+async function defaultAiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const isBrowserRuntime =
+    typeof window !== 'undefined' &&
+    typeof process !== 'undefined' &&
+    !process.env.VITEST;
+
+  if (isBrowserRuntime && /^https?:\/\//i.test(rawUrl)) {
+    const proxyHeaders = new Headers(init?.headers);
+    proxyHeaders.set('x-ai-target-url', rawUrl);
+    proxyHeaders.set('x-ai-target-method', (init?.method ?? 'GET').toUpperCase());
+
+    return fetch('/api/ai-proxy', {
+      method: (init?.method ?? 'GET').toUpperCase() === 'GET' ? 'GET' : 'POST',
+      headers: proxyHeaders,
+      body: init?.body,
+      signal: init?.signal,
+      cache: 'no-store',
+    });
+  }
+
+  return fetch(input, init);
+}
+
+/**
  * Shared plumbing for every AI provider implementation:
  *  - URL normalisation (strips trailing slashes)
  *  - Per-request timeout merged with caller AbortSignal
@@ -31,7 +60,7 @@ export abstract class BaseAIProvider implements AIProvider {
     this.baseURL = (config.baseURL || PROVIDER_PRESETS[config.type].baseURL).replace(/\/+$/, '');
     this.apiKey = config.apiKey.trim();
     this.defaultModel = config.defaultModel || PROVIDER_PRESETS[config.type].defaultModel;
-    this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
+    this.fetchImpl = fetchImpl ?? defaultAiFetch;
   }
 
   abstract chat(messages: readonly ChatMessage[], options?: ChatOptions): Promise<ChatResult>;
@@ -44,9 +73,21 @@ export abstract class BaseAIProvider implements AIProvider {
   async testConnection(signal?: AbortSignal): Promise<ConnectionTestResult> {
     const started = Date.now();
     try {
+      let modelToTest = this.defaultModel;
+      if (!modelToTest) {
+        const discovered = await this.listModels(signal).catch(() => []);
+        if (discovered.length > 0 && discovered[0]) {
+          modelToTest = discovered[0];
+        }
+      }
       await this.chat(
         [{ id: 'ping', role: 'user', content: 'Ping. Reply with OK.', createdAt: started }],
-        { maxTokens: 8, temperature: 0, signal },
+        {
+          ...(modelToTest ? { model: modelToTest } : {}),
+          maxTokens: 8,
+          temperature: 0,
+          signal,
+        },
       );
       return { success: true, latency: Math.max(1, Date.now() - started) };
     } catch (error) {

@@ -77,12 +77,55 @@ describe('FortunoClient – reads', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('accepts both "ledger" and "ledgers" envelopes', async () => {
+  it('accepts both "ledger" and "ledgers" envelopes and "timestamp" field', async () => {
     const entry = { id: 'L1', type: 'DEPOSIT', amount: 10, time: 5 };
+    const liveEntry = { id: 'L2', type: 'CLOSE_POSITION', amount: -0.07, timestamp: 1793962379503 };
     const a = setup(() => jsonResponse({ ledger: [entry] }));
-    const b = setup(() => jsonResponse({ ledgers: [entry] }));
+    const b = setup(() => jsonResponse({ ledgers: [liveEntry] }));
     expect(await a.client.getLedgers({ from: 0, to: 10 })).toHaveLength(1);
-    expect(await b.client.getLedgers({ from: 0, to: 10 })).toHaveLength(1);
+    const liveLedgers = await b.client.getLedgers({ from: 0, to: 10 });
+    expect(liveLedgers).toHaveLength(1);
+    expect(liveLedgers[0]?.time).toBe(1793962379503);
+  });
+
+  it('normalizes live Match-Trader account-summary (freeFunds/profit), closedPositions, and numeric tradingHours', async () => {
+    const { client } = setup((url) => {
+      if (url.pathname.endsWith('/account-summary')) {
+        return jsonResponse({
+          balance: 7.79,
+          credit: 0,
+          equity: 7.79,
+          freeFunds: 7.79,
+          margin: 0,
+          marginLevel: 0,
+          profit: 1.25,
+        });
+      }
+      if (url.pathname.endsWith('/closed-positions')) {
+        return jsonResponse({
+          closedPositions: [{ ...position, closePrice: 1.15, closeTime: 2000 }],
+        });
+      }
+      return jsonResponse({
+        tradingHours: [
+          {
+            symbol: 'EURUSD',
+            sessions: [{ dayOfWeek: 1, open: '00:00:00', close: '23:59:59' }],
+          },
+        ],
+      });
+    });
+
+    const summary = await client.getAccountSummary();
+    expect(summary.freeMargin).toBe(7.79);
+    expect(summary.floatingProfit).toBe(1.25);
+
+    const closed = await client.getClosedPositions({ from: 0, to: 5000 });
+    expect(closed).toHaveLength(1);
+
+    const hours = await client.getTradingHours('EURUSD');
+    expect(hours.symbol).toBe('EURUSD');
+    expect(hours.sessions[0]?.dayOfWeek).toBe('MONDAY');
   });
 });
 

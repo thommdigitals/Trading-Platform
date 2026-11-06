@@ -97,14 +97,18 @@ function validateSymbols(symbols: readonly string[] | undefined): string[] | und
 
 /** Typed gateway to the Match-Trader Trader API (all 17 documented endpoints). */
 export class FortunoClient {
+  private readonly platformCache = new TtlCache<PlatformDetails>({ maxEntries: 2 });
+  private readonly accountCache = new TtlCache<Account>({ maxEntries: 2 });
   private readonly symbolCache = new TtlCache<SymbolInfo[]>({ maxEntries: 8 });
   private readonly candleCache = new TtlCache<Candle[]>({ maxEntries: CACHE.maxEntries });
   private readonly hoursCache = new TtlCache<TradingHours>({ maxEntries: CACHE.maxEntries });
 
   constructor(private readonly http: HttpClient) {}
 
-  /** Drops all cached market data (call when switching account / token). */
+  /** Drops all cached market & account data (call when switching account / token). */
   clearCaches(): void {
+    this.platformCache.clear();
+    this.accountCache.clear();
     this.symbolCache.clear();
     this.candleCache.clear();
     this.hoursCache.clear();
@@ -112,18 +116,41 @@ export class FortunoClient {
 
   // --- platform & account ---------------------------------------------------------------------
 
-  getPlatformDetails(options: CallOptions = {}): Promise<PlatformDetails> {
-    return this.http.request({ path: '/v1/platform-details', schema: PlatformDetailsSchema, ...options });
+  getPlatformDetails(options: CallOptions & { force?: boolean } = {}): Promise<PlatformDetails> {
+    if (options.force) this.platformCache.delete('platform');
+    return this.platformCache.getOrLoad(
+      'platform',
+      () =>
+        this.http.request({
+          path: '/v1/platform-details',
+          schema: PlatformDetailsSchema,
+          rateLimitBucket: 'metadata',
+          signal: options.signal,
+        }),
+      CACHE.platformDetailsTtlMs,
+    );
   }
 
-  getAccount(options: CallOptions = {}): Promise<Account> {
-    return this.http.request({ path: '/v1/account', schema: AccountSchema, ...options });
+  getAccount(options: CallOptions & { force?: boolean } = {}): Promise<Account> {
+    if (options.force) this.accountCache.delete('account');
+    return this.accountCache.getOrLoad(
+      'account',
+      () =>
+        this.http.request({
+          path: '/v1/account',
+          schema: AccountSchema,
+          rateLimitBucket: 'metadata',
+          signal: options.signal,
+        }),
+      CACHE.accountTtlMs,
+    );
   }
 
   getAccountSummary(options: CallOptions = {}): Promise<AccountSummary> {
     return this.http.request({
-      path: '/v1/account/summary',
+      path: '/v1/account-summary',
       schema: AccountSummarySchema,
+      rateLimitBucket: 'accountSummary',
       ...options,
     });
   }
@@ -338,7 +365,7 @@ export class FortunoClient {
     options: CallOptions & { limit?: number; symbols?: string[] } = {},
   ): Promise<ClosedPosition[]> {
     const response = await this.http.request({
-      path: '/v1/positions/history',
+      path: '/v1/closed-positions',
       query: {
         from: range.from,
         to: range.to,
@@ -425,7 +452,15 @@ export function createFortunoClient(options: CreateClientOptions): FortunoClient
   const rateLimiter =
     options.rateLimiter ??
     new SlidingWindowRateLimiter(
-      { trading: RATE_LIMITS.trading, candles: RATE_LIMITS.candles },
+      {
+        trading: RATE_LIMITS.trading,
+        candles: RATE_LIMITS.candles,
+        quotes: RATE_LIMITS.quotes,
+        accountSummary: RATE_LIMITS.accountSummary,
+        positions: RATE_LIMITS.positions,
+        pendingOrders: RATE_LIMITS.pendingOrders,
+        metadata: RATE_LIMITS.metadata,
+      },
       { maxWaitMs: RATE_LIMITS.maxQueueWaitMs },
     );
   return new FortunoClient(new HttpClient({ ...options, rateLimiter }));

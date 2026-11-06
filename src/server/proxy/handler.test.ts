@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { handleAiProxyRequest, validateAiTargetUrl } from '../aiProxy';
 import { ServerRateLimiter } from '../rateLimit';
 import { handleProxyRequest, type ProxyDeps } from './handler';
 import { matchRoute, sanitizeQuery } from './policy';
@@ -186,4 +187,47 @@ describe('handleProxyRequest', () => {
     expect(await res.json()).toMatchObject({ type: 'error://x/not-enough-margin' });
   });
 });
+
+describe('AI Proxy (handleAiProxyRequest & validateAiTargetUrl)', () => {
+  it('validates allowed AI provider URLs and blocks private/SSRF targets', () => {
+    expect(validateAiTargetUrl('https://kiosapi.com/v1/models')?.href).toBe('https://kiosapi.com/v1/models');
+    expect(validateAiTargetUrl('http://localhost:11434/api/tags')?.href).toBe('http://localhost:11434/api/tags');
+    expect(validateAiTargetUrl('http://127.0.0.1:11434/api/tags')?.href).toBe('http://127.0.0.1:11434/api/tags');
+    expect(validateAiTargetUrl('http://kiosapi.com/v1/models')).toBeNull();
+    expect(validateAiTargetUrl('https://169.254.169.254/latest/meta-data')).toBeNull();
+    expect(validateAiTargetUrl('https://10.0.0.1/v1')).toBeNull();
+    expect(validateAiTargetUrl('https://192.168.1.1/v1')).toBeNull();
+    expect(validateAiTargetUrl('ftp://kiosapi.com/v1')).toBeNull();
+  });
+
+  it('proxies custom AI provider model discovery and chat completion requests', async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      new Response(JSON.stringify({ data: [{ id: 'claude-3-5-sonnet' }, { id: 'gpt-4o' }], url }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const request = new Request('https://app.test/api/ai-proxy', {
+      method: 'GET',
+      headers: {
+        host: 'app.test',
+        'x-ai-target-url': 'https://kiosapi.com/v1/models',
+        'x-ai-target-method': 'GET',
+        authorization: 'Bearer sk-kios-123',
+      },
+    });
+
+    const response = await handleAiProxyRequest(request, {
+      limiter: new ServerRateLimiter(60),
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 

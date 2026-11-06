@@ -96,10 +96,15 @@ export default function LoginPage(): React.ReactElement {
     useTradingStore.getState().setConnectionState('connecting');
 
     try {
+      fortunoApi.clearCaches();
       setDemoMode(false);
       await setToken(trimmed, remember);
-      const account = await fortunoApi.getAccount();
+      const [account, summary] = await Promise.all([
+        fortunoApi.getAccount({ force: true }),
+        fortunoApi.getAccountSummary().catch(() => null),
+      ]);
       useTradingStore.getState().setAccount(account);
+      if (summary) useTradingStore.getState().setAccountSummary(summary);
       useTradingStore.getState().setConnectionState('connected');
       showSuccess(`Terhubung ke akun #${account.login} (${account.currency})`);
       router.push('/dashboard');
@@ -118,9 +123,14 @@ export default function LoginPage(): React.ReactElement {
     setConnecting(true);
     setError(null);
     try {
+      fortunoApi.clearCaches();
       setDemoMode(true);
-      const account = await fortunoApi.getAccount();
+      const [account, summary] = await Promise.all([
+        fortunoApi.getAccount({ force: true }),
+        fortunoApi.getAccountSummary().catch(() => null),
+      ]);
       useTradingStore.getState().setAccount(account);
+      if (summary) useTradingStore.getState().setAccountSummary(summary);
       useTradingStore.getState().setConnectionState('connected');
       showSuccess('Demo Sandbox aktif! Semua fitur trading & AI siap diuji.');
       router.push('/dashboard');

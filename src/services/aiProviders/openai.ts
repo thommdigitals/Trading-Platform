@@ -196,22 +196,48 @@ export class OpenAIProvider extends BaseAIProvider {
 
   override async listModels(signal?: AbortSignal): Promise<string[]> {
     const { signal: timedSignal, cleanup } = this.withTimeout(signal);
+    const fallbacks = [...PROVIDER_PRESETS[this.type].fallbackModels];
     try {
       const response = await this.fetchImpl(`${this.baseURL}/models`, {
         headers: this.buildHeaders(),
         signal: timedSignal,
       });
       if (!response.ok) {
-        return [...PROVIDER_PRESETS[this.type].fallbackModels];
+        if (fallbacks.length > 0) return fallbacks;
+        const errBody = (await response.json().catch(() => ({}))) as {
+          error?: { message?: string };
+          message?: string;
+        };
+        throw new Error(
+          errBody.error?.message ||
+            errBody.message ||
+            `Gagal memuat daftar model dari ${this.baseURL} (HTTP ${response.status})`,
+        );
       }
-      const data = (await response.json()) as { data?: Array<{ id?: string }> };
-      const models = (data.data ?? [])
-        .map((m) => m.id ?? '')
+
+      const raw = (await response.json()) as {
+        data?: Array<{ id?: string; name?: string } | string>;
+        models?: Array<{ id?: string; name?: string } | string>;
+      };
+      const items = Array.isArray(raw.data)
+        ? raw.data
+        : Array.isArray(raw.models)
+          ? raw.models
+          : Array.isArray(raw)
+            ? (raw as Array<{ id?: string; name?: string } | string>)
+            : [];
+
+      const models = items
+        .map((entry) =>
+          typeof entry === 'string' ? entry.trim() : (entry.id ?? entry.name ?? '').trim(),
+        )
         .filter((id) => Boolean(id) && (this.type !== 'openai' || id.startsWith('gpt-')))
         .sort();
-      return models.length > 0 ? models : [...PROVIDER_PRESETS[this.type].fallbackModels];
-    } catch {
-      return [...PROVIDER_PRESETS[this.type].fallbackModels];
+
+      return models.length > 0 ? [...new Set(models)] : fallbacks;
+    } catch (err) {
+      if (fallbacks.length > 0) return fallbacks;
+      throw err instanceof Error ? err : new Error('Gagal memuat daftar model dari provider');
     } finally {
       cleanup();
     }

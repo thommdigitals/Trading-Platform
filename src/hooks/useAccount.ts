@@ -22,21 +22,33 @@ export function useAccount(enablePolling: boolean = true) {
   const refresh = useCallback(async () => {
     if (!useConfigStore.getState().apiToken && !useConfigStore.getState().demoMode) return;
     const store = useTradingStore.getState();
-    if (!store.account) store.setLoading('account', true);
+    if (!store.account && !store.accountSummary) store.setLoading('account', true);
 
     try {
-      const [acc, summary, details] = await Promise.all([
-        fortunoApi.getAccount(),
+      const [accRes, summaryRes, detailsRes] = await Promise.allSettled([
+        store.account ? Promise.resolve(store.account) : fortunoApi.getAccount(),
         fortunoApi.getAccountSummary(),
         store.platformDetails
           ? Promise.resolve(store.platformDetails)
-          : fortunoApi.getPlatformDetails().catch(() => null),
+          : fortunoApi.getPlatformDetails(),
       ]);
-      store.setAccount(acc);
-      store.setAccountSummary(summary);
-      if (details) store.setPlatformDetails(details);
-      store.setConnected(true, null);
-      store.setError('account', null);
+
+      if (accRes.status === 'fulfilled' && accRes.value) {
+        store.setAccount(accRes.value);
+      }
+      if (summaryRes.status === 'fulfilled' && summaryRes.value) {
+        store.setAccountSummary(summaryRes.value);
+      }
+      if (detailsRes.status === 'fulfilled' && detailsRes.value) {
+        store.setPlatformDetails(detailsRes.value);
+      }
+
+      if (accRes.status === 'fulfilled' || summaryRes.status === 'fulfilled') {
+        store.setConnected(true, null);
+        store.setError('account', null);
+      } else if (summaryRes.status === 'rejected') {
+        store.setError('account', getErrorMessage(summaryRes.reason));
+      }
     } catch (err) {
       const msg = getErrorMessage(err);
       store.setError('account', msg);

@@ -66,10 +66,15 @@ export default function SettingsPage(): React.ReactElement {
       return;
     }
     try {
+      fortunoApi.clearCaches();
       setDemoMode(false);
       await setToken(trimmed, true);
-      const account = await fortunoApi.getAccount();
+      const [account, summary] = await Promise.all([
+        fortunoApi.getAccount({ force: true }),
+        fortunoApi.getAccountSummary().catch(() => null),
+      ]);
       useTradingStore.getState().setAccount(account);
+      if (summary) useTradingStore.getState().setAccountSummary(summary);
       setNewToken('');
       showSuccess(`Token diperbarui untuk akun #${account.login}`);
     } catch (err) {
@@ -78,6 +83,7 @@ export default function SettingsPage(): React.ReactElement {
   };
 
   const handleLogout = (): void => {
+    fortunoApi.clearCaches();
     logout();
     useTradingStore.getState().reset();
     showSuccess('Sesi diputuskan dan token dihapus.');

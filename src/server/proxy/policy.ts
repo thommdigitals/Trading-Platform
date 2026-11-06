@@ -24,9 +24,11 @@ const route = (method: ProxyMethod, path: string, hasBody = false): Route => ({
 export const PROXY_ROUTES: readonly Route[] = [
   route('GET', 'platform-details'),
   route('GET', 'account'),
+  route('GET', 'account-summary'),
   route('GET', 'account/summary'),
   route('GET', 'positions'),
   route('POST', 'positions', true),
+  route('GET', 'closed-positions'),
   route('GET', 'positions/history'),
   route('PATCH', `positions/${ID}`, true),
   route('POST', `positions/${ID}/close`, true),
@@ -40,6 +42,12 @@ export const PROXY_ROUTES: readonly Route[] = [
   route('GET', 'trading-hours'),
   route('GET', 'ledgers'),
 ];
+
+/** Canonical upstream paths for Match-Trader API v1 when legacy aliases are requested. */
+const UPSTREAM_PATH_ALIASES: Record<string, string> = {
+  'v1/account/summary': 'v1/account-summary',
+  'v1/positions/history': 'v1/closed-positions',
+};
 
 export const ALLOWED_QUERY_KEYS = new Set(['symbol', 'type', 'interval', 'from', 'to', 'limit']);
 const QUERY_VALUE_PATTERN = /^[A-Za-z0-9._#@-]{1,64}$/;
@@ -75,7 +83,8 @@ export function matchRoute(method: string, segments: readonly string[]): Matched
   if (candidates.length === 0) return 'not-found';
   const matched = candidates.find((entry) => entry.method === method);
   if (!matched) return 'method-not-allowed';
-  return { method: matched.method, path, hasBody: matched.hasBody };
+  const upstreamPath = UPSTREAM_PATH_ALIASES[path] ?? path;
+  return { method: matched.method, path: upstreamPath, hasBody: matched.hasBody };
 }
 
 /** Returns a sanitised query string, or `null` if any parameter is not allowed. */

@@ -30,7 +30,7 @@ export function WatchlistWidget({
   const setSelectedSymbol = useConfigStore((s) => s.setDefaultSymbol);
 
   const { symbols } = useSymbols();
-  const { quotes, previousQuotes, loading, refresh } = useQuotes(watchlist);
+  const { quotes, previousQuotes, loading, refresh } = useQuotes(watchlist, false);
 
   const [symbolToAdd, setSymbolToAdd] = React.useState<string>('');
 

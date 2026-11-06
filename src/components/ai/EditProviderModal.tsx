@@ -34,6 +34,7 @@ export function EditProviderModal({
   const [defaultModel, setDefaultModel] = React.useState('');
   const [models, setModels] = React.useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = React.useState(false);
+  const [statusMsg, setStatusMsg] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!provider) return;
@@ -42,28 +43,66 @@ export function EditProviderModal({
     setApiKey(provider.apiKey);
     setDefaultModel(provider.defaultModel);
     setModels([...PROVIDER_PRESETS[provider.type].fallbackModels]);
+    setStatusMsg(null);
   }, [provider]);
+
+  const handleFetchModels = React.useCallback(
+    async (silent: boolean = false, signal?: AbortSignal): Promise<void> => {
+      if (!provider) return;
+      const trimmedBase = baseURL.trim();
+      if (!/^https?:\/\/.+/i.test(trimmedBase)) return;
+      setFetchingModels(true);
+      if (!silent) setStatusMsg(null);
+      try {
+        const instance = createProvider({
+          ...provider,
+          displayName,
+          baseURL: trimmedBase,
+          apiKey: apiKey.trim(),
+          defaultModel,
+        });
+        const list = await instance.listModels(signal);
+        if (signal?.aborted) return;
+        if (list.length > 0) {
+          setModels(list);
+          setDefaultModel((prev) => (prev && list.includes(prev) ? prev : (list[0] ?? prev)));
+          setStatusMsg(`✓ Loaded ${list.length} models`);
+        }
+      } catch (err) {
+        if (!signal?.aborted && !silent) {
+          setStatusMsg(`✕ ${err instanceof Error ? err.message : 'Failed to fetch models'}`);
+        }
+      } finally {
+        if (!signal?.aborted) {
+          setFetchingModels(false);
+        }
+      }
+    },
+    [provider, displayName, baseURL, apiKey, defaultModel],
+  );
+
+  React.useEffect(() => {
+    if (!open || !provider) return;
+    const trimmedBase = baseURL.trim();
+    const trimmedKey = apiKey.trim();
+    const requiresKey = PROVIDER_PRESETS[provider.type].requiresApiKey;
+    if (!/^https?:\/\/.+/i.test(trimmedBase)) return;
+    if (requiresKey && !trimmedKey) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void handleFetchModels(true, controller.signal);
+    }, 550);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [open, provider, baseURL, apiKey, handleFetchModels]);
 
   if (!provider) return null;
 
   const preset = PROVIDER_PRESETS[provider.type];
-
-  const handleFetchModels = async (): Promise<void> => {
-    setFetchingModels(true);
-    try {
-      const instance = createProvider({
-        ...provider,
-        displayName,
-        baseURL,
-        apiKey,
-        defaultModel,
-      });
-      const list = await instance.listModels();
-      if (list.length > 0) setModels(list);
-    } finally {
-      setFetchingModels(false);
-    }
-  };
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -162,6 +201,12 @@ export function EditProviderModal({
             />
           </div>
         </div>
+
+        {statusMsg && (
+          <p className="rounded border border-slate-800 bg-slate-950 px-3 py-2 text-[11px] text-slate-300">
+            {statusMsg}
+          </p>
+        )}
 
         <div className="flex items-center justify-end gap-2 pt-2">
           <Button type="button" size="sm" variant="ghost" onClick={() => onOpenChange(false)}>

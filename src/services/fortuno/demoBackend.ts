@@ -391,7 +391,7 @@ export async function demoFetch(
     return json(account);
   }
 
-  if (path === '/v1/account/summary' && method === 'GET') {
+  if ((path === '/v1/account-summary' || path === '/v1/account/summary') && method === 'GET') {
     return json(demoState.getSummary());
   }
 
@@ -557,7 +557,7 @@ export async function demoFetch(
     return json(hours);
   }
 
-  if (path === '/v1/positions/history' && method === 'GET') {
+  if ((path === '/v1/closed-positions' || path === '/v1/positions/history') && method === 'GET') {
     const from = Number(url.searchParams.get('from') ?? '0');
     const to = Number(url.searchParams.get('to') ?? String(Date.now()));
     const symbols = url.searchParams.getAll('symbol');
@@ -567,7 +567,7 @@ export async function demoFetch(
         p.closeTime <= to &&
         (symbols.length === 0 || symbols.includes(p.symbol)),
     );
-    return json({ positions });
+    return json({ positions, closedPositions: positions });
   }
 
   if (path === '/v1/ledgers' && method === 'GET') {
