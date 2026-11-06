@@ -132,3 +132,4 @@ export function SignalCard({
     </Card>
   );
 }
+

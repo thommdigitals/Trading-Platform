@@ -16,3 +16,4 @@ export default function AIAutomationPage(): React.ReactElement {
     </AppLayout>
   );
 }
+

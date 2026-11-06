@@ -190,3 +190,4 @@ ${summary}`,
 
   return parseAnalysisResponse(response.content, params.symbol, params.interval, candles);
 }
+

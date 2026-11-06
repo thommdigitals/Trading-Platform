@@ -304,3 +304,4 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     });
   },
 }));
+

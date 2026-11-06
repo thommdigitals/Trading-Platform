@@ -9,3 +9,4 @@ export class CustomProvider extends OpenAIProvider {
     super(config, fetchImpl);
   }
 }
+

@@ -39,3 +39,4 @@ export const fortunoApi: FortunoClient = createFortunoClient({
     useTradingStore.getState().setRateLimitRemaining(info);
   },
 });
+

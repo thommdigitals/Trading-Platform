@@ -92,3 +92,4 @@ export function ChatMessage({ message }: ChatMessageProps): React.ReactElement |
     </div>
   );
 }
+

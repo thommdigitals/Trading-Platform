@@ -237,3 +237,4 @@ export function ChatInterface(): React.ReactElement {
     </Card>
   );
 }
+

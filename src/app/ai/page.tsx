@@ -80,3 +80,4 @@ export default function AIHubPage(): React.ReactElement {
     </AppLayout>
   );
 }
+

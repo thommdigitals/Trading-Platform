@@ -169,3 +169,4 @@ export const useAIStore = create<AIState>((set, get) => ({
     set({ automationStats: { ...get().automationStats, ...update } });
   },
 }));
+

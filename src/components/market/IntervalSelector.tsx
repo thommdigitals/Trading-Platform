@@ -48,3 +48,4 @@ export function IntervalSelector({
     </div>
   );
 }
+

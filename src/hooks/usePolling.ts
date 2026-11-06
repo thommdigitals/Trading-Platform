@@ -59,3 +59,4 @@ export function usePolling(
     };
   }, [intervalMs, enabled, isVisible, isOnline]);
 }
+

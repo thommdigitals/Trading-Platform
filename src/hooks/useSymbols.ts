@@ -36,3 +36,4 @@ export function useSymbols() {
 
   return { symbols, loading, error, refresh };
 }
+

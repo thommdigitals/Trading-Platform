@@ -172,3 +172,4 @@ export default function HistoryPage(): React.ReactElement {
     </AppLayout>
   );
 }
+

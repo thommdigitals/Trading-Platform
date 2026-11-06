@@ -106,3 +106,4 @@ Instruksi:
 }
 
 export const buildTradingSystemPrompt = buildSystemPrompt;
+

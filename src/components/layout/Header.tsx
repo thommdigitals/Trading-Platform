@@ -97,3 +97,4 @@ export function Header({ onOpenShortcuts }: HeaderProps) {
     </header>
   );
 }
+

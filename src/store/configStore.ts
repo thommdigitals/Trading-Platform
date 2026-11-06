@@ -300,3 +300,4 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     persistPrefs({ ...get(), riskSettings });
   },
 }));
+

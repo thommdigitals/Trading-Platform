@@ -183,3 +183,4 @@ export function AutomationMonitor(): React.ReactElement {
     </Card>
   );
 }
+

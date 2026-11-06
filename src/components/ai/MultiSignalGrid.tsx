@@ -140,3 +140,4 @@ export function MultiSignalGrid({ onTradeSignal }: MultiSignalGridProps): React.
     </Card>
   );
 }
+

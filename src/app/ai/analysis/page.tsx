@@ -27,3 +27,4 @@ export default function AIAnalysisPage(): React.ReactElement {
     </AppLayout>
   );
 }
+

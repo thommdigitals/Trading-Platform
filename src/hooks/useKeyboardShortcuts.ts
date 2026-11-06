@@ -73,3 +73,4 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handlers]);
 }
+

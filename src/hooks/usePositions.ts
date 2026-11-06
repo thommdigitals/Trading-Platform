@@ -96,3 +96,4 @@ export function usePositions(enablePolling: boolean = true) {
     closeAllPositions,
   };
 }
+

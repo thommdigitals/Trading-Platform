@@ -56,3 +56,4 @@ export function useAccount(enablePolling: boolean = true) {
     refresh,
   };
 }
+

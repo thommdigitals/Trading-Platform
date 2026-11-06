@@ -84,3 +84,4 @@ export function useCandles(symbol: string, interval: CandleInterval) {
     refresh,
   };
 }
+

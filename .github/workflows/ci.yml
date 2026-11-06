@@ -39,3 +39,4 @@ jobs:
 
       - name: Build production Next.js bundle
         run: npm run build
+

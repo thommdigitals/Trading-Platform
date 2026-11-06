@@ -39,3 +39,4 @@ export function useOnlineStatus(): boolean {
 
   return online;
 }
+

@@ -54,3 +54,4 @@ export function useQuotes(extraSymbols: readonly string[] = [], enablePolling: b
 
   return { quotes, previousQuotes, loading, error, refresh };
 }
+

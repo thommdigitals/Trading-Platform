@@ -20,3 +20,4 @@ export class MistralProvider extends OpenAIProvider {
     return [...PROVIDER_PRESETS.mistral.fallbackModels];
   }
 }
+

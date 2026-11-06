@@ -151,3 +151,4 @@ export function triggerRiskNotification(title: string, body: string): void {
     /* ignore browser notification permission / environment restrictions */
   }
 }
+

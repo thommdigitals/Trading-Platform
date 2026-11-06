@@ -508,3 +508,4 @@ describe('TradingContext, TradingTools, MarketAnalysis, RiskGuard & AutomationEn
     useConfigStore.getState().setDemoMode(false);
   });
 });
+
