@@ -5,7 +5,6 @@ import { Pencil, Trash2, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -30,9 +29,8 @@ export function PendingOrderTable() {
 
   const [search, setSearch] = React.useState('');
   const [editingOrder, setEditingOrder] = React.useState<PendingOrder | null>(null);
-  const [cancelingOrder, setCancelingOrder] = React.useState<PendingOrder | null>(null);
-  const [confirmCancelAll, setConfirmCancelAll] = React.useState(false);
-  const [submitting, setSubmitting] = React.useState(false);
+  const [cancelingIds, setCancelingIds] = React.useState<Record<string, boolean>>({});
+  const [cancelingAll, setCancelingAll] = React.useState(false);
 
   const symbolMap = React.useMemo(
     () => new Map(symbols.map((s) => [s.symbol, s])),
@@ -44,30 +42,33 @@ export function PendingOrderTable() {
     return pendingOrders.filter((o) => !q || o.symbol.includes(q) || o.id.includes(q));
   }, [pendingOrders, search]);
 
-  const handleConfirmCancelSingle = async () => {
-    if (!cancelingOrder) return;
-    setSubmitting(true);
+  const handleCancelSingle = async (ord: PendingOrder) => {
+    if (cancelingIds[ord.id] || cancelingAll) return;
+    setCancelingIds((prev) => ({ ...prev, [ord.id]: true }));
     try {
-      await cancelPendingOrder(cancelingOrder.id);
-      showSuccess(`Pending order #${cancelingOrder.id} dibatalkan.`);
-      setCancelingOrder(null);
+      await cancelPendingOrder(ord.id);
+      showSuccess(`Pending order #${ord.id} dibatalkan.`);
     } catch (err) {
       showError(err);
     } finally {
-      setSubmitting(false);
+      setCancelingIds((prev) => {
+        const next = { ...prev };
+        delete next[ord.id];
+        return next;
+      });
     }
   };
 
-  const handleConfirmCancelAll = async () => {
-    setSubmitting(true);
+  const handleCancelAll = async () => {
+    if (cancelingAll) return;
+    setCancelingAll(true);
     try {
       await cancelAllPendingOrders();
       showSuccess('Semua pending order berhasil dibatalkan.');
-      setConfirmCancelAll(false);
     } catch (err) {
       showError(err);
     } finally {
-      setSubmitting(false);
+      setCancelingAll(false);
     }
   };
 
@@ -86,10 +87,11 @@ export function PendingOrderTable() {
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => setConfirmCancelAll(true)}
+              disabled={cancelingAll}
+              onClick={() => void handleCancelAll()}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Cancel All ({pendingOrders.length})
+              {cancelingAll ? 'Membatalkan...' : `Cancel All (${pendingOrders.length})`}
             </Button>
           )}
         </div>
@@ -157,10 +159,11 @@ export function PendingOrderTable() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setCancelingOrder(ord)}
+                          disabled={Boolean(cancelingIds[ord.id]) || cancelingAll}
+                          onClick={() => void handleCancelSingle(ord)}
                         >
                           <XCircle className="h-3.5 w-3.5 text-rose-500" />
-                          Cancel
+                          {cancelingIds[ord.id] ? 'Canceling...' : 'Cancel'}
                         </Button>
                       </div>
                     </TableCell>
@@ -185,60 +188,6 @@ export function PendingOrderTable() {
         }}
         onSubmit={updatePendingOrder}
       />
-
-      <Dialog
-        open={Boolean(cancelingOrder)}
-        onOpenChange={(open) => {
-          if (!open) setCancelingOrder(null);
-        }}
-        title={`Batalkan Pending Order #${cancelingOrder?.id ?? ''}?`}
-        description="Pending order yang dibatalkan tidak akan dieksekusi."
-      >
-        <div className="flex justify-end gap-2 pt-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCancelingOrder(null)}
-            disabled={submitting}
-          >
-            Kembali
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => void handleConfirmCancelSingle()}
-            disabled={submitting}
-          >
-            {submitting ? 'Membatalkan...' : 'Ya, Batalkan Order'}
-          </Button>
-        </div>
-      </Dialog>
-
-      <Dialog
-        open={confirmCancelAll}
-        onOpenChange={setConfirmCancelAll}
-        title="Batalkan Semua Pending Orders?"
-        description={`Seluruh ${pendingOrders.length} pending order akan dibatalkan sekaligus.`}
-      >
-        <div className="flex justify-end gap-2 pt-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setConfirmCancelAll(false)}
-            disabled={submitting}
-          >
-            Kembali
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => void handleConfirmCancelAll()}
-            disabled={submitting}
-          >
-            {submitting ? 'Membatalkan...' : `Ya, Cancel All (${pendingOrders.length})`}
-          </Button>
-        </div>
-      </Dialog>
     </Card>
   );
 }

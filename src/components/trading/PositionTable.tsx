@@ -5,7 +5,6 @@ import { ArrowUpDown, Pencil, XCircle, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import {
@@ -23,7 +22,6 @@ import type { Position, Side } from '@/types/api';
 import { formatDateTime } from '@/utils/dateTime';
 import { formatPrice, formatSigned, pnlColorClass } from '@/utils/formatters';
 import { netPnl } from '@/utils/tradingCalculations';
-import { ClosePositionDialog } from './ClosePositionDialog';
 import { ModifyPositionDialog } from './ModifyPositionDialog';
 
 type SortKey = 'symbol' | 'profit' | 'openTime';
@@ -39,9 +37,8 @@ export function PositionTable() {
   const [sortKey, setSortKey] = React.useState<SortKey>('openTime');
   const [sortAsc, setSortAsc] = React.useState(false);
 
-  const [closingPos, setClosingPos] = React.useState<Position | null>(null);
   const [modifyingPos, setModifyingPos] = React.useState<Position | null>(null);
-  const [confirmCloseAll, setConfirmCloseAll] = React.useState(false);
+  const [closingIds, setClosingIds] = React.useState<Record<string, boolean>>({});
   const [closingAll, setClosingAll] = React.useState(false);
 
   const symbolMap = React.useMemo(
@@ -73,12 +70,29 @@ export function PositionTable() {
     }
   };
 
+  const handleCloseSingle = async (pos: Position) => {
+    if (closingIds[pos.id] || closingAll) return;
+    setClosingIds((prev) => ({ ...prev, [pos.id]: true }));
+    try {
+      await closePosition(pos.id, pos.volume);
+      showSuccess(`Posisi #${pos.id} (${pos.symbol}) sebesar ${pos.volume} lot berhasil ditutup.`);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setClosingIds((prev) => {
+        const next = { ...prev };
+        delete next[pos.id];
+        return next;
+      });
+    }
+  };
+
   const handleCloseAll = async () => {
+    if (closingAll) return;
     setClosingAll(true);
     try {
       await closeAllPositions();
       showSuccess('Semua posisi terbuka berhasil ditutup.');
-      setConfirmCloseAll(false);
     } catch (err) {
       showError(err);
     } finally {
@@ -115,10 +129,11 @@ export function PositionTable() {
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => setConfirmCloseAll(true)}
+              disabled={closingAll}
+              onClick={() => void handleCloseAll()}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Close All ({positions.length})
+              {closingAll ? 'Menutup...' : `Close All (${positions.length})`}
             </Button>
           )}
         </div>
@@ -227,11 +242,12 @@ export function PositionTable() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setClosingPos(pos)}
+                          disabled={Boolean(closingIds[pos.id]) || closingAll}
+                          onClick={() => void handleCloseSingle(pos)}
                           aria-label={`Tutup posisi ${pos.id}`}
                         >
                           <XCircle className="h-3.5 w-3.5 text-rose-500" />
-                          Close
+                          {closingIds[pos.id] ? 'Closing...' : 'Close'}
                         </Button>
                       </div>
                     </TableCell>
@@ -242,16 +258,6 @@ export function PositionTable() {
           </Table>
         )}
       </CardContent>
-
-      <ClosePositionDialog
-        position={closingPos}
-        symbolInfo={closingPos ? symbolMap.get(closingPos.symbol) : undefined}
-        currency={currency}
-        onOpenChange={(open) => {
-          if (!open) setClosingPos(null);
-        }}
-        onSubmit={closePosition}
-      />
 
       <ModifyPositionDialog
         position={modifyingPos}
@@ -264,32 +270,6 @@ export function PositionTable() {
         }}
         onSubmit={updatePosition}
       />
-
-      <Dialog
-        open={confirmCloseAll}
-        onOpenChange={setConfirmCloseAll}
-        title="Konfirmasi Tutup Semua Posisi"
-        description={`Anda akan menutup seluruh ${positions.length} posisi terbuka sekaligus. Tindakan ini tidak dapat dibatalkan.`}
-      >
-        <div className="flex justify-end gap-2 pt-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setConfirmCloseAll(false)}
-            disabled={closingAll}
-          >
-            Batal
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => void handleCloseAll()}
-            disabled={closingAll}
-          >
-            {closingAll ? 'Menutup Semua...' : `Ya, Close All (${positions.length})`}
-          </Button>
-        </div>
-      </Dialog>
     </Card>
   );
 }

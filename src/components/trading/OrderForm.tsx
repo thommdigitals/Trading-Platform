@@ -19,7 +19,6 @@ import {
   validateTpSl,
   validateVolume,
 } from '@/utils/tradingCalculations';
-import { TradeConfirmDialog } from './TradeConfirmDialog';
 
 export interface OrderFormProps {
   symbol?: string;
@@ -54,7 +53,6 @@ export function OrderForm({
   const [tpText, setTpText] = React.useState<string>('');
   const [slText, setSlText] = React.useState<string>('');
   const [comment, setComment] = React.useState<string>('');
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
 
   React.useEffect(() => {
@@ -127,7 +125,6 @@ export function OrderForm({
       setTpText('');
       setSlText('');
       setComment('');
-      setConfirmOpen(false);
     } catch (err) {
       showError(err);
     } finally {
@@ -137,12 +134,8 @@ export function OrderForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (hasValidationError) return;
-    if (riskSettings.confirmBeforeTrade) {
-      setConfirmOpen(true);
-    } else {
-      void executeOrder();
-    }
+    if (hasValidationError || submitting || sessionClosed) return;
+    void executeOrder();
   };
 
   return (
@@ -310,19 +303,6 @@ export function OrderForm({
           </Button>
         </form>
       </CardContent>
-
-      <TradeConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        symbol={symbolInfo.symbol}
-        side={side}
-        volume={volume}
-        tpPrice={tpPrice}
-        slPrice={slPrice}
-        estimatedMargin={formatMoney(estMargin, account?.currency ?? 'USD', 2)}
-        submitting={submitting}
-        onConfirm={() => void executeOrder()}
-      />
     </Card>
   );
 }

@@ -342,16 +342,6 @@ export default function SettingsPage(): React.ReactElement {
                   />
                 </div>
               </div>
-
-              <label className="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={riskSettings.confirmBeforeTrade}
-                  onChange={(e) => updateRiskSettings({ confirmBeforeTrade: e.target.checked })}
-                  className="rounded border-slate-700"
-                />
-                <span>Always require confirmation dialog before submitting Market Orders</span>
-              </label>
             </CardContent>
           </Card>
         )}

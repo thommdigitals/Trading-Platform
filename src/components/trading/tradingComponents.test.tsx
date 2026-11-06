@@ -35,8 +35,7 @@ describe('Trading Components Suite (TASK-014, TASK-015, TASK-016, TASK-017, TASK
     useTradingStore.getState().setAccount(account);
   });
 
-  it('renders OrderForm, toggles BUY/SELL, steps volume, and submits market order (TASK-015)', async () => {
-    useConfigStore.getState().updateRiskSettings({ confirmBeforeTrade: false });
+  it('renders OrderForm, toggles BUY/SELL, steps volume, and submits market order directly without confirmation popup (TASK-015)', async () => {
     render(<OrderForm symbol="EURUSD" />);
 
     const sellBtn = screen.getByRole('button', { name: /^SELL/i });
@@ -45,17 +44,31 @@ describe('Trading Components Suite (TASK-014, TASK-015, TASK-016, TASK-017, TASK
     const submitBtn = screen.getByRole('button', { name: /Open SELL EURUSD/i });
     fireEvent.click(submitBtn);
 
+    // Must not open any confirmation dialog
+    expect(screen.queryByRole('dialog')).toBeNull();
+
     await waitFor(() => {
       expect(useTradingStore.getState().positions.length).toBeGreaterThanOrEqual(2);
     });
   });
 
-  it('renders PositionTable, ClosePositionDialog, and ModifyPositionDialog (TASK-014, TASK-016, TASK-017)', async () => {
+  it('closes a position directly from PositionTable without confirmation popup and supports ModifyPositionDialog (TASK-014, TASK-016, TASK-017)', async () => {
+    const initialCount = useTradingStore.getState().positions.length;
+    const pos = useTradingStore.getState().positions[0]!;
+
     const { unmount } = render(<PositionTable />);
     expect(screen.getByText(/Posisi Terbuka/i)).toBeInTheDocument();
+
+    // Clicking Close on a position row closes it immediately without any confirmation popup
+    const closeBtn = screen.getByRole('button', { name: new RegExp(`Tutup posisi ${pos.id}`, 'i') });
+    fireEvent.click(closeBtn);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await waitFor(() => {
+      expect(useTradingStore.getState().positions.length).toBe(initialCount - 1);
+    });
     unmount();
 
-    const pos = useTradingStore.getState().positions[0]!;
     const onSubmitClose = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
 
@@ -90,7 +103,8 @@ describe('Trading Components Suite (TASK-014, TASK-015, TASK-016, TASK-017, TASK
     });
   });
 
-  it('renders CreatePendingOrderForm & PendingOrderTable and creates a pending order (TASK-019)', () => {
+  it('creates and cancels a pending order directly without confirmation popup (TASK-019)', async () => {
+    const initialOrderCount = useTradingStore.getState().pendingOrders.length;
     render(
       <div>
         <CreatePendingOrderForm />
@@ -99,5 +113,16 @@ describe('Trading Components Suite (TASK-014, TASK-015, TASK-016, TASK-017, TASK
     );
 
     expect(screen.getByText(/Pending Orders/i)).toBeInTheDocument();
+
+    // Cancel an existing pending order directly without opening a dialog
+    if (initialOrderCount > 0) {
+      const cancelButtons = screen.getAllByRole('button', { name: /^Cancel$/i });
+      fireEvent.click(cancelButtons[0]!);
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      await waitFor(() => {
+        expect(useTradingStore.getState().pendingOrders.length).toBe(initialOrderCount - 1);
+      });
+    }
   });
 });

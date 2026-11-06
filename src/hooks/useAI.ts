@@ -90,8 +90,10 @@ export function useAI() {
         });
 
         if (result.toolCalls && result.toolCalls.length > 0) {
-          const readOnlyCalls = result.toolCalls.filter((c) => !requiresUserConfirmation(c.name));
-          const approvalCalls = result.toolCalls.filter((c) => requiresUserConfirmation(c.name));
+          const shouldConfirm = (name: string) =>
+            cfgState.riskSettings.confirmBeforeTrade && requiresUserConfirmation(name);
+          const immediateCalls = result.toolCalls.filter((c) => !shouldConfirm(c.name));
+          const approvalCalls = result.toolCalls.filter((c) => shouldConfirm(c.name));
 
           if (result.content) {
             aiState.addMessage({
@@ -101,9 +103,13 @@ export function useAI() {
             });
           }
 
-          // Execute read-only tools immediately and feed back to AI
-          for (const call of readOnlyCalls.slice(0, AI.maxToolRounds)) {
+          // Execute immediate tools directly and feed back to AI
+          let mutatedPortfolio = false;
+          for (const call of immediateCalls.slice(0, AI.maxToolRounds)) {
             const toolOutput = await executeTradingTool(call.name, call.arguments, fortunoApi);
+            if (requiresUserConfirmation(call.name)) {
+              mutatedPortfolio = true;
+            }
             aiState.addMessage({
               role: 'tool',
               toolCallId: call.id,
@@ -112,7 +118,16 @@ export function useAI() {
             });
           }
 
-          if (readOnlyCalls.length > 0 && approvalCalls.length === 0) {
+          if (mutatedPortfolio) {
+            const [positions, orders] = await Promise.all([
+              fortunoApi.getPositions().catch(() => null),
+              fortunoApi.getPendingOrders().catch(() => null),
+            ]);
+            if (positions) useTradingStore.getState().setPositions(positions);
+            if (orders) useTradingStore.getState().setPendingOrders(orders);
+          }
+
+          if (immediateCalls.length > 0 && approvalCalls.length === 0) {
             const followUp = await aiRouter.chat(
               providerId,
               [systemMsg, ...useAIStore.getState().chatMessages],

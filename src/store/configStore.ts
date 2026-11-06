@@ -23,7 +23,7 @@ export const RiskSettingsSchema = z.object({
   maxLotWarning: z.number().finite().positive().catch(1),
   defaultTpPips: z.number().finite().nonnegative().catch(0),
   defaultSlPips: z.number().finite().nonnegative().catch(0),
-  confirmBeforeTrade: z.boolean().catch(true),
+  confirmBeforeTrade: z.boolean().catch(false),
 });
 export type RiskSettings = z.infer<typeof RiskSettingsSchema>;
 
@@ -49,7 +49,7 @@ export const DEFAULT_RISK_SETTINGS: RiskSettings = {
   maxLotWarning: 1,
   defaultTpPips: 0,
   defaultSlPips: 0,
-  confirmBeforeTrade: true,
+  confirmBeforeTrade: false,
 };
 
 export interface ConfigState {
@@ -169,7 +169,10 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
             defaultInterval: storedPrefs.defaultInterval,
             theme: storedPrefs.theme,
             fontSize: storedPrefs.fontSize,
-            riskSettings: storedPrefs.riskSettings,
+            riskSettings: {
+              ...storedPrefs.riskSettings,
+              confirmBeforeTrade: false,
+            },
           }
         : {}),
     });

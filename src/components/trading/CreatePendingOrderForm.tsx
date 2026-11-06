@@ -84,7 +84,7 @@ export function CreatePendingOrderForm({ onCreated }: { onCreated?: () => void }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (hasError) return;
+    if (hasError || submitting) return;
     setSubmitting(true);
     try {
       const res = await createPendingOrder({
@@ -218,7 +218,12 @@ export function CreatePendingOrderForm({ onCreated }: { onCreated?: () => void }
             />
           </div>
 
-          <Button type="submit" disabled={hasError || submitting} className="w-full">
+          <Button
+            type="submit"
+            variant={side === 'BUY' ? 'buy' : 'sell'}
+            disabled={hasError || submitting}
+            className="w-full font-bold"
+          >
             {submitting ? 'Membuat Order...' : `Buat ${side} ${type} ${symbolInfo.symbol}`}
           </Button>
         </form>
